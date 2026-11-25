@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('accepts a GitHub link', async ({ page }) => {
+  await page.route('**/api/replay/*/*', (route) => new Promise((r) => setTimeout(r, 2000)).then(() => route.abort()));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'repo-replay' })).toBeVisible();
   await page.getByLabel('GitHub link').fill('https://github.com/sveltejs/svelte');
@@ -18,6 +19,7 @@ test('explains a bad link and keeps what was typed', async ({ page }) => {
 });
 
 test('any path serves the app, so share links will work', async ({ page }) => {
+  await page.route('**/api/**', (route) => route.abort());
   const res = await page.goto('/sveltejs/svelte');
   expect(res?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'repo-replay' })).toBeVisible();
