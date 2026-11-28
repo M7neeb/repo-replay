@@ -1,3 +1,7 @@
 name = "repo-replay"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-11-01"
+
+[[kv_namespaces]]
+binding = "REPLAYS"
+id = "44770624348348dd8ee5efc080740ff7"
