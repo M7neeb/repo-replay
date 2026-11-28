@@ -89,6 +89,10 @@ export const MAX_FULL_COMMITS = 5000;
 export const BUCKETS = 60;
 export const MAX_SNAPSHOTS = 60;
 export const MAX_ENTRIES = 400;
+/** The most tree pieces a build asks for when file lists are read in parts. */
+export const TREE_PIECES = 200;
+/** The most pieces the server accepts in one save: the repo, up to 60 bucket or 10 history pieces, and the trees. */
+export const MAX_PIECES = 1 + BUCKETS + TREE_PIECES + 64;
 
 export function pieceKey(owner: string, name: string, head: string): string {
   return `${owner}/${name}@${head}`;

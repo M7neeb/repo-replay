@@ -3,11 +3,10 @@ import { fail, json } from '../../../server/http';
 import { verify } from '../../../server/sign';
 import { AssembleError, checkStructure } from '../../../shared/assemble';
 import { decodePieces, encodeBundle } from '../../../shared/bundle';
-import { decodeHeader, type Header } from '../../../shared/pieces';
+import { decodeHeader, MAX_PIECES, type Header } from '../../../shared/pieces';
 import { replayKey } from '../../../shared/replay';
 
 const MAX_BODY = 8 * 1024 * 1024;
-const MAX_PIECES = 200;
 const KEEP_SECONDS = 60 * 24 * 3600;
 
 // The page sends back the signed pieces it collected. Only pieces this server handed out are

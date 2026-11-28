@@ -7,6 +7,8 @@ import { bucketEdges, BUCKETS, type BucketHeader, type BucketsHeader, type Commi
 
 export const BUCKETS_PER_CALL = 5;
 const SAMPLE = 20;
+const OPEN_START = '1970-01-01T00:00:00Z';
+const OPEN_END = '2999-12-31T23:59:59Z';
 
 function iso(seconds: number): string {
   return new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
@@ -33,8 +35,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const decl: string[] = [];
   const fields: string[] = [];
   for (let i = from; i < to; i++) {
-    vars[`s${i}`] = iso(edges[i]);
-    vars[`u${i}`] = iso(edges[i + 1] - 1);
+    // The first and last slices are left open, so commits dated before the first one or after the
+    // latest one (wrong clocks, imported history) still count and the slices add up to the total.
+    vars[`s${i}`] = i === 0 ? OPEN_START : iso(edges[i]);
+    vars[`u${i}`] = i === BUCKETS - 1 ? OPEN_END : iso(edges[i + 1] - 1);
     decl.push(`$s${i}: GitTimestamp!, $u${i}: GitTimestamp!`);
     fields.push(`b${i}: history(first: ${SAMPLE}, since: $s${i}, until: $u${i}) { totalCount nodes { ${COMMIT_FIELDS} } }`);
   }

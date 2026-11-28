@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeGitHub, memoryKV, type FakeRepo } from './fakeGitHub';
 import { apiFor } from './app';
-import { loadReplay, LoadError } from '../src/lib/build';
-import { MAX_ENTRIES, MAX_SNAPSHOTS } from '../shared/pieces';
+import { loadReplay, LoadError, snapshotLimit } from '../src/lib/build';
+import { BUCKETS, MAX_ENTRIES, MAX_PIECES, MAX_SNAPSHOTS } from '../shared/pieces';
+import { MAX_PARTS } from '../functions/api/trees';
 import type { Env } from '../server/env';
 
 const DAY = 24 * 3600;
@@ -10,7 +11,7 @@ const NOW = Math.floor(Date.parse('2026-11-20T12:00:00Z') / 1000);
 
 const tiny: FakeRepo = { owner: 'ana', name: 'notes', commits: 3, files: 2, firstAt: NOW - 20 * DAY, headAt: NOW - DAY };
 const medium: FakeRepo = { owner: 'Acme', name: 'Widget', commits: 3000, files: 1800, firstAt: NOW - 1500 * DAY, headAt: NOW, people: 40 };
-const huge: FakeRepo = { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300 };
+const huge: FakeRepo = { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300, strayDates: 40 };
 const wide: FakeRepo = { owner: 'wide', name: 'mono', commits: 400, files: 12_000, firstAt: NOW - 900 * DAY, headAt: NOW };
 const empty: FakeRepo = { owner: 'ana', name: 'empty', commits: 0, files: 0, firstAt: NOW, headAt: NOW };
 const single: FakeRepo = { owner: 'ana', name: 'hello', commits: 1, files: 1, firstAt: NOW, headAt: NOW };
@@ -101,6 +102,27 @@ describe('building a replay', () => {
     expect(again.replay.snapshots).toEqual(r.snapshots);
     expect(kv.writes()).toBe(1);
   }, 60_000);
+
+  it('never collects more pieces than the server accepts, however many parts a file list needs', () => {
+    for (let parts = 1; parts <= MAX_PARTS; parts++) {
+      const trees = snapshotLimit(parts) * parts;
+      expect(1 + BUCKETS + trees, `${parts} parts`).toBeLessThanOrEqual(MAX_PIECES);
+      expect(snapshotLimit(parts)).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('asks for one time slice at a time when GitHub times out on five', async () => {
+    const { api } = setup({ maxBucketsPerQuery: 1, flakyBuckets: [7] });
+    const out = await loadReplay({ owner: 'big', name: 'kernel' }, { api });
+    expect(out.replay.timeline).toHaveLength(60);
+    expect(out.replay.timeline.reduce((s, row) => s + row[1], 0)).toBe(250_000);
+    expect(out.saved).toBe(true);
+  });
+
+  it('gives up when one time slice keeps failing', async () => {
+    const { api } = setup({ maxBucketsPerQuery: 1, flakyBuckets: [7, 7] });
+    await expect(loadReplay({ owner: 'big', name: 'kernel' }, { api })).rejects.toMatchObject({ kind: 'upstream' });
+  });
 
   it('opens from the saved copy the second time without reading the history again', async () => {
     const { api, kv } = setup();

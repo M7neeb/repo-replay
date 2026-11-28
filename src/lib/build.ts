@@ -2,7 +2,7 @@ import { assemble } from '../../shared/assemble';
 import type { ApiError, PieceResponse, StartResponse, StoreResponse, TreePartResponse, TreesResponse } from '../../shared/api';
 import { addCounts, depthFromCounts, type DepthCounts } from '../../shared/depth';
 import { decodeBundle, encodePieces } from '../../shared/bundle';
-import { BUCKETS, decodePiece, MAX_SNAPSHOTS, type BucketsPiece, type CommitsPiece, type Piece, type Signed, type TreePiece } from '../../shared/pieces';
+import { BUCKETS, decodePiece, MAX_SNAPSHOTS, TREE_PIECES, type BucketsPiece, type CommitsPiece, type Piece, type Signed, type TreePiece } from '../../shared/pieces';
 import type { Replay, RepoInfo } from '../../shared/replay';
 import type { RepoRef } from './repoUrl';
 
@@ -34,7 +34,8 @@ export class LoadError extends Error {
 }
 
 const BUCKETS_PER_CALL = 5;
-const PARALLEL = 3;
+const ONE_SLICE_ABOVE = 300_000;
+const PARALLEL = 6;
 // Roughly how many files one call can read and still stay inside the server's CPU budget.
 const FILES_PER_CALL = 2500;
 
@@ -76,6 +77,14 @@ async function inParallel<T>(jobs: (() => Promise<T>)[], limit: number): Promise
   };
   await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker));
   return out;
+}
+
+/**
+ * How many snapshots to take when each file list is read in `parts` calls: enough to show the
+ * project grow, few enough that the build stays inside MAX_PIECES and the hourly GitHub allowance.
+ */
+export function snapshotLimit(parts: number): number {
+  return parts > 1 ? Math.max(4, Math.min(MAX_SNAPSHOTS, Math.floor(TREE_PIECES / parts))) : MAX_SNAPSHOTS;
 }
 
 /** Up to MAX_SNAPSHOTS commits spread evenly through the history, oldest first, always ending at the head. */
@@ -126,6 +135,46 @@ export async function loadReplay(
   };
   const candidates: { sha: string; at: number }[] = [];
 
+
+  const treeQ = (sha: string, extra: Record<string, string | number> = {}) => `/api/trees?${q(repo, { shas: sha, ...extra })}`;
+  const readParts = async (sha: string, parts: number, depth: number) => {
+    const all = await inParallel(
+      Array.from({ length: parts }, (_, part) => () => call<TreePartResponse>(api, treeQ(sha, { part, parts, depth }))),
+      PARALLEL,
+    );
+    return all.map((r) => {
+      if (!('piece' in r)) throw new LoadError('upstream');
+      return keep(r.piece) as TreePiece;
+    });
+  };
+
+  // The latest file list doesn't depend on the history, so it's read alongside it. It decides how
+  // deep to look, and how many snapshots fit when every file list has to be read in parts.
+  const readHead = async (): Promise<{ depth: number; headFiles: number; headParts: number }> => {
+    const head = await call<TreesResponse>(api, treeQ(repo.head));
+    if (head.pieces.length && head.depth !== null) {
+      return { depth: head.depth, headFiles: (keep(head.pieces[0]) as TreePiece).files, headParts: 1 };
+    }
+    const split = head.split.find((s) => s.sha === repo.head);
+    if (!split) throw new LoadError('upstream');
+    const counted = await inParallel(
+      Array.from({ length: split.parts }, (_, part) => () => call<TreePartResponse>(api, treeQ(repo.head, { part, parts: split.parts }))),
+      PARALLEL,
+    );
+    let counts: DepthCounts | null = null;
+    for (const r of counted) {
+      if (!('counts' in r)) throw new LoadError('upstream');
+      counts = counts ? addCounts(counts, r.counts) : r.counts;
+    }
+    const depth = depthFromCounts(counts!);
+    const files = (await readParts(repo.head, split.parts, depth)).reduce((n, t) => n + t.files, 0);
+    return { depth, headFiles: files, headParts: split.parts };
+  };
+  const headRead = readHead();
+  // Keep a failure here from counting as unhandled while the history is still loading.
+  headRead.catch(() => {});
+
+
   if (!repo.sampled) {
     let after: string | null = null;
     let done = 0;
@@ -141,67 +190,44 @@ export async function loadReplay(
       after = page.next;
     } while (after);
   } else {
+    // Very long histories time out at GitHub with several slices per query, so don't even try.
+    const perCall = repo.commits > ONE_SLICE_ABOVE ? 1 : BUCKETS_PER_CALL;
     const ranges: [number, number][] = [];
-    for (let from = 0; from < BUCKETS; from += BUCKETS_PER_CALL) ranges.push([from, Math.min(from + BUCKETS_PER_CALL, BUCKETS)]);
+    for (let from = 0; from < BUCKETS; from += perCall) ranges.push([from, Math.min(from + perCall, BUCKETS)]);
     let done = 0;
-    progress({ stage: 'history', done, total: ranges.length, unit: 'parts' });
-    await inParallel(
-      ranges.map(([from, to]) => async () => {
-        check();
-        const res = await call<PieceResponse>(api, `/api/buckets?${q(repo, { first: repo.firstAt, last: repo.headAt, from, to })}`);
-        const piece = keep(res.piece) as BucketsPiece;
-        // The newest commit in each bucket stands for how the project looked at the end of it.
-        piece.buckets.forEach((b, j) => {
-          if (b.shas[0]) candidates.push({ sha: b.shas[0], at: piece.samples[j][0][0] });
-        });
-        progress({ stage: 'history', done: ++done, total: ranges.length, unit: 'parts' });
-      }),
-      2,
-    );
+    progress({ stage: 'history', done, total: BUCKETS, unit: 'parts' });
+    // GitHub stops a query after about ten seconds, so a range that fails is asked for again one
+    // slice at a time.
+    const read = async (from: number, to: number, retried = false): Promise<void> => {
+      check();
+      let res: PieceResponse;
+      try {
+        res = await call<PieceResponse>(api, `/api/buckets?${q(repo, { first: repo.firstAt, last: repo.headAt, from, to })}`);
+      } catch (err) {
+        if (!(err instanceof LoadError) || err.kind !== 'upstream') throw err;
+        if (to - from > 1) {
+          await inParallel(Array.from({ length: to - from }, (_, i) => () => read(from + i, from + i + 1)), PARALLEL);
+          return;
+        }
+        if (retried) throw err;
+        return read(from, to, true);
+      }
+      const piece = keep(res.piece) as BucketsPiece;
+      // The newest commit in each bucket stands for how the project looked at the end of it.
+      piece.buckets.forEach((b, j) => {
+        if (b.shas[0]) candidates.push({ sha: b.shas[0], at: piece.samples[j][0][0] });
+      });
+      done += piece.buckets.length;
+      progress({ stage: 'history', done, total: BUCKETS, unit: 'parts' });
+    };
+    await inParallel(ranges.map(([from, to]) => () => read(from, to)), PARALLEL);
   }
 
-  // The latest file list comes first: it decides how deep to look, and how many snapshots
-  // the GitHub allowance can pay for when every file list has to be read in parts.
-  progress({ stage: 'files', done: 0, total: MAX_SNAPSHOTS });
   check();
-  const treeQ = (sha: string, extra: Record<string, string | number> = {}) => `/api/trees?${q(repo, { shas: sha, ...extra })}`;
-  const readParts = async (sha: string, parts: number, depth: number) => {
-    const all = await inParallel(
-      Array.from({ length: parts }, (_, part) => () => call<TreePartResponse>(api, treeQ(sha, { part, parts, depth }))),
-      PARALLEL,
-    );
-    return all.map((r) => {
-      if (!('piece' in r)) throw new LoadError('upstream');
-      return keep(r.piece) as TreePiece;
-    });
-  };
+  progress({ stage: 'files', done: 0, total: MAX_SNAPSHOTS });
+  const { depth, headFiles, headParts } = await headRead;
 
-  const head = await call<TreesResponse>(api, treeQ(repo.head));
-  let depth: number;
-  let headFiles: number;
-  let headParts = 1;
-  if (head.pieces.length && head.depth !== null) {
-    depth = head.depth;
-    headFiles = (keep(head.pieces[0]) as TreePiece).files;
-  } else {
-    const split = head.split.find((s) => s.sha === repo.head);
-    if (!split) throw new LoadError('upstream');
-    headParts = split.parts;
-    const counted = await inParallel(
-      Array.from({ length: split.parts }, (_, part) => () => call<TreePartResponse>(api, treeQ(repo.head, { part, parts: split.parts }))),
-      PARALLEL,
-    );
-    let counts: DepthCounts | null = null;
-    for (const r of counted) {
-      if (!('counts' in r)) throw new LoadError('upstream');
-      counts = counts ? addCounts(counts, r.counts) : r.counts;
-    }
-    depth = depthFromCounts(counts!);
-    headFiles = (await readParts(repo.head, split.parts, depth)).reduce((n, t) => n + t.files, 0);
-  }
-
-  const limit = headParts > 1 ? Math.max(8, Math.min(MAX_SNAPSHOTS, Math.floor(200 / headParts))) : MAX_SNAPSHOTS;
-  const shas = pickSnapshots(candidates, repo.head, limit);
+  const shas = pickSnapshots(candidates, repo.head, snapshotLimit(headParts));
   const total = shas.length;
   let done = 1;
   progress({ stage: 'files', done, total });

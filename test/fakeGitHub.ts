@@ -10,6 +10,8 @@ export interface FakeRepo {
   firstAt: number;
   headAt: number;
   people?: number;
+  /** This many commits (from the second oldest on) carry dates years before the first commit, as some old imported histories do. */
+  strayDates?: number;
 }
 
 interface FakeCommit {
@@ -36,7 +38,8 @@ class Built {
     const span = spec.headAt - spec.firstAt;
     for (let i = 0; i < spec.commits; i++) {
       const at = spec.commits === 1 ? spec.headAt : spec.firstAt + Math.round((span * i) / (spec.commits - 1));
-      list.push({ oid: sha(`${spec.owner}/${spec.name}#${i}`), at, index: i });
+      const stray = i > 0 && i <= (spec.strayDates ?? 0);
+      list.push({ oid: sha(`${spec.owner}/${spec.name}#${i}`), at: stray ? spec.firstAt - 10 * 365 * 86400 : at, index: i });
     }
     for (const c of list) this.byOid.set(c.oid, c);
     this.newestFirst = list.reverse();
@@ -71,6 +74,10 @@ export interface FakeOptions {
   graphqlLeft?: number;
   coreLeft?: number;
   resetAt?: number;
+  /** Queries asking for more time buckets than this time out, the way GitHub does on very long histories. */
+  maxBucketsPerQuery?: number;
+  /** Bucket queries that time out once before they work, by first bucket index. */
+  flakyBuckets?: number[];
 }
 
 export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
@@ -135,6 +142,13 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
         });
       }
       if (op === 'Buckets') {
+        const asked = Object.keys(variables).filter((k) => /^s\d+$/.test(k));
+        const first = Number(asked[0].slice(1));
+        const flaky = options.flakyBuckets?.indexOf(first) ?? -1;
+        if (asked.length > (options.maxBucketsPerQuery ?? Infinity) || flaky !== -1) {
+          if (flaky !== -1) options.flakyBuckets!.splice(flaky, 1);
+          return json({ data: null, errors: [{ message: 'Something went wrong while executing your query. This may be the result of a timeout.' }] });
+        }
         const object: Record<string, unknown> = {};
         for (const key of Object.keys(variables)) {
           const m = /^s(\d+)$/.exec(key);
