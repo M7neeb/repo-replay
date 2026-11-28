@@ -3,6 +3,7 @@ import { fakeGitHub, memoryKV, type FakeRepo } from './fakeGitHub';
 import { apiFor } from './app';
 import { loadReplay } from '../src/lib/build';
 import { lightSnapshots } from '../shared/chart';
+import { findMoments, findMomentsFrom } from '../shared/moments';
 import { cardInput } from '../shared/cardInput';
 import { decodeBundle } from '../shared/bundle';
 import { xmlProblems } from './xml';
@@ -12,8 +13,8 @@ const DAY = 86400;
 const NOW = Math.floor(Date.parse('2026-11-20T12:00:00Z') / 1000);
 const repos: FakeRepo[] = [
   { owner: 'ana', name: 'notes', commits: 3, files: 2, firstAt: NOW - 20 * DAY, headAt: NOW - DAY },
-  { owner: 'Acme', name: 'Widget', commits: 3000, files: 1800, firstAt: NOW - 1500 * DAY, headAt: NOW, people: 40 },
-  { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300 },
+  { owner: 'Acme', name: 'Widget', commits: 3000, files: 1800, firstAt: NOW - 1500 * DAY, headAt: NOW, people: 40, release: { after: 300 * DAY, tag: 'v1.0.0', count: 25 } },
+  { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300, tag: { after: 2500 * DAY, name: 'v0.01', count: 900 } },
   { owner: 'wide', name: 'mono', commits: 400, files: 12_000, firstAt: NOW - 900 * DAY, headAt: NOW },
 ];
 let env: Env;
@@ -39,6 +40,11 @@ it('draws the card from the saved replay, and its numbers match the full replay'
     const input = cardInput(decodeBundle(stored)!.pieces)!;
     const full = lightSnapshots(replay);
     expect(input.snapshots.map((s) => [s.at, s.files, Object.fromEntries(s.counts)]), r.name).toEqual(full.map((s) => [s.at, s.files, Object.fromEntries(s.counts)]));
+    expect(input.timeline, r.name).toEqual(replay.timeline);
+    // the card and the page tell the same story
+    expect(findMomentsFrom(input), r.name).toEqual(findMoments(replay));
+    if (r.release) expect(findMoments(replay).map((m) => m.caption)).toContain(`First GitHub release, \`${r.release.tag}\``);
+    if (r.tag) expect(findMoments(replay).map((m) => m.caption)).toContain(`First tagged version, \`${r.tag.name}\``);
 
     for (const theme of ['', '?theme=dark']) {
       const { res, text } = await get(`/api/card/${r.owner}/${r.name}.svg${theme}`);

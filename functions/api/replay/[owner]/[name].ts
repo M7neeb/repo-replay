@@ -2,6 +2,7 @@ import type { Env } from '../../../../server/env';
 import { bundleResponse, fail, json } from '../../../../server/http';
 import { errorResponseFields, gitHub, GitHubError, toSeconds } from '../../../../server/github';
 import { sign } from '../../../../server/sign';
+import { firstRelease } from '../../../../server/release';
 import { BUILD, type BundleMeta } from '../../../../shared/bundle';
 import { isOwner, isRepoName } from '../../../../shared/names';
 import { MAX_FULL_COMMITS, MAX_SNAPSHOTS, pieceKey, type RepoHeader } from '../../../../shared/pieces';
@@ -12,6 +13,11 @@ const META = `query Meta($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     name owner { login } description stargazerCount
     defaultBranchRef { name target { ... on Commit { oid committedDate history(first: 1) { totalCount } } } }
+    releases(first: 1, orderBy: { field: CREATED_AT, direction: ASC }) { totalCount nodes { tagName createdAt } }
+    refs(refPrefix: "refs/tags/", first: 1, orderBy: { field: TAG_COMMIT_DATE, direction: ASC }) {
+      totalCount
+      nodes { name target { ... on Commit { committedDate } ... on Tag { target { ... on Commit { committedDate } } } } }
+    }
   }
 }`;
 
@@ -33,8 +39,11 @@ interface Meta {
       name: string;
       target: { oid?: string; committedDate?: string; history?: { totalCount: number } };
     } | null;
+    releases?: { totalCount: number; nodes: { tagName: string; createdAt: string }[] };
+    refs?: { totalCount: number; nodes: { name: string; target: { committedDate?: string; target?: { committedDate?: string } } }[] } | null;
   } | null;
 }
+
 
 interface First {
   repository: { object: { history?: { nodes: { committedDate: string }[] } } | null } | null;
@@ -95,6 +104,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
       commits: total,
       sampled: total > MAX_FULL_COMMITS,
     };
+    const release = firstRelease(repo);
+    if (release) info.firstRelease = release;
 
     const stored = await storedReplay(env, replayKey(info));
     if (stored) return bundleResponse(stored, false);

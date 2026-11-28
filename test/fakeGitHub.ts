@@ -14,6 +14,10 @@ export interface FakeRepo {
   strayDates?: number;
   /** This many commits just before the head carry dates years in the future. */
   futureDates?: number;
+  /** A first release this long after the first commit (seconds), and how many there are. */
+  release?: { after: number; tag: string; count: number };
+  /** Only tags, no releases. */
+  tag?: { after: number; name: string; count: number };
 }
 
 interface FakeCommit {
@@ -122,6 +126,12 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
               defaultBranchRef: head
                 ? { name: 'main', target: { oid: head.oid, committedDate: new Date(head.at * 1000).toISOString(), history: { totalCount: repo.spec.commits } } }
                 : null,
+              releases: repo.spec.release
+                ? { totalCount: repo.spec.release.count, nodes: [{ tagName: repo.spec.release.tag, createdAt: new Date((repo.spec.firstAt + repo.spec.release.after) * 1000).toISOString() }] }
+                : { totalCount: 0, nodes: [] },
+              refs: repo.spec.tag
+                ? { totalCount: repo.spec.tag.count, nodes: [{ name: repo.spec.tag.name, target: { target: { committedDate: new Date((repo.spec.firstAt + repo.spec.tag.after) * 1000).toISOString() } } }] }
+                : { totalCount: 0, nodes: [] },
             },
           },
         });

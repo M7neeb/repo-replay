@@ -61,7 +61,7 @@ describe('milestones', () => {
   it('ignores tooling folders and tiny folders', () => {
     const r = makeReplay([
       { at: '2020-01-01', folders: { 'src/': 500 } },
-      { at: '2021-01-01', folders: { 'src/': 600, '.github/': 40, 'docs/': 3 } },
+      { at: '2021-01-01', folders: { 'src/': 520, '.github/': 40, 'docs/': 3 } },
     ]);
     expect(findMoments(r).map((m) => m.caption)).toEqual(['First commit']);
   });
@@ -78,7 +78,7 @@ describe('milestones', () => {
   it('marks passing 1,000 files', () => {
     const r = makeReplay([
       { at: '2020-01-01', folders: { 'src/': 900 } },
-      { at: '2022-01-01', folders: { 'src/': 1200 } },
+      { at: '2022-01-01', folders: { 'src/': 1050 } },
     ]);
     expect(findMoments(r).map((m) => m.caption)).toContain('Passes 1,000 files');
   });

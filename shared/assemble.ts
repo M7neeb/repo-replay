@@ -134,9 +134,12 @@ function authorKey(a: RawAuthor): string {
   return a.login ? `@${a.login.toLowerCase()}` : a.name.toLowerCase();
 }
 
-export function assemble(pieces: Piece[], builtAt: string): Replay {
-  const { repo, pages, bucketPieces, trees } = checkStructure(pieces);
-
+/**
+ * The timeline, the authors and every known commit date, from the commit pages or the time buckets.
+ * Only those pieces need their data; the README card passes the others as headers alone.
+ */
+export function buildTimeline(pieces: Piece[], structure: Structure): { timeline: TimelineRow[]; authors: Author[]; dates: Map<string, number> } {
+  const { repo, pages, bucketPieces } = structure;
   const authors: Author[] = [];
   const authorIndex = new Map<string, number>();
   const globalAuthor = (list: RawAuthor[], i: number): number => {
@@ -154,7 +157,6 @@ export function assemble(pieces: Piece[], builtAt: string): Replay {
 
   const dates = new Map<string, number>([[repo.head, repo.headAt]]);
   const timeline: TimelineRow[] = [];
-
   if (!repo.sampled) {
     for (let p = pages.length - 1; p >= 0; p--) {
       const page = pieces[pages[p]] as Extract<Piece, { kind: 'commits' }>;
@@ -185,6 +187,14 @@ export function assemble(pieces: Piece[], builtAt: string): Replay {
       });
     }
   }
+
+  return { timeline, authors, dates };
+}
+
+export function assemble(pieces: Piece[], builtAt: string): Replay {
+  const structure = checkStructure(pieces);
+  const { repo, trees } = structure;
+  const { timeline, authors, dates } = buildTimeline(pieces, structure);
 
   const paths: string[] = [];
   const pathIndex = new Map<string, number>();

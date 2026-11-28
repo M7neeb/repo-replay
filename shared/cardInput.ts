@@ -1,35 +1,21 @@
-import { checkStructure } from './assemble';
+import { buildTimeline, checkStructure } from './assemble';
 import type { LightSnapshot } from './chart';
-import { decodeHeader, type BucketsData, type CommitsData, type Header, type Signed, type TreeHeader } from './pieces';
-import type { RepoInfo } from './replay';
+import type { MomentInput } from './moments';
+import { decodeHeader, decodePiece, type Header, type Piece, type Signed, type TreeHeader } from './pieces';
 
-// The README card needs far less than a full replay: when each snapshot was taken and how many files each
-// top folder held. That comes from the small headers plus the commit dates, without reading any file list,
-// so the server can draw the card for a big project inside its CPU budget.
+// The README card needs far less than a full replay: the commit timeline and, per snapshot, how many files
+// each top folder held. That comes from the commit pages (or time buckets) plus the small tree headers,
+// without reading any file list, so the server can draw the card for a big project inside its CPU budget.
 
-const data = <T>(body: string): T => JSON.parse(body.slice(body.indexOf('\n') + 1)) as T;
-
-export function cardInput(pieces: Signed[]): { repo: RepoInfo; snapshots: LightSnapshot[] } | null {
-  const headers: Header[] = pieces.map((p) => decodeHeader(p.body));
-  const { repo, pages, bucketPieces, trees } = checkStructure(headers);
-
-  const wanted = new Set(trees.map((t) => t.sha));
-  const dates = new Map<string, number>([[repo.head, repo.headAt]]);
-  for (const i of repo.sampled ? bucketPieces : pages) {
-    const h = headers[i];
-    if (h.kind === 'commits') {
-      if (!h.shas.some((s) => wanted.has(s))) continue;
-      const rows = data<CommitsData>(pieces[i].body).rows;
-      h.shas.forEach((sha, j) => wanted.has(sha) && dates.set(sha, rows[j][0]));
-    } else if (h.kind === 'buckets') {
-      if (!h.buckets.some((b) => b.shas.some((s) => wanted.has(s)))) continue;
-      const samples = data<BucketsData>(pieces[i].body).samples;
-      h.buckets.forEach((b, j) => b.shas.forEach((sha, k) => wanted.has(sha) && dates.set(sha, samples[j][k][0])));
-    }
-  }
+export function cardInput(signed: Signed[]): MomentInput | null {
+  const headers: Header[] = signed.map((p) => decodeHeader(p.body));
+  const structure = checkStructure(headers);
+  // only the commit pages and buckets need their data; tree pieces stay headers
+  const pieces = headers.map((h, i) => (h.kind === 'commits' || h.kind === 'buckets' ? decodePiece(signed[i].body) : (h as Piece)));
+  const { timeline, dates } = buildTimeline(pieces, structure);
 
   const snapshots: LightSnapshot[] = [];
-  for (const t of trees) {
+  for (const t of structure.trees) {
     let files = 0;
     let truncated = false;
     const counts = new Map<string, number>();
@@ -41,8 +27,8 @@ export function cardInput(pieces: Signed[]): { repo: RepoInfo; snapshots: LightS
       truncated ||= h.truncated;
       for (const [k, n] of h.folders) counts.set(k, (counts.get(k) ?? 0) + n);
     }
-    snapshots.push({ at: dates.get(t.sha) ?? repo.headAt, files, truncated, counts });
+    snapshots.push({ at: dates.get(t.sha) ?? structure.repo.headAt, files, truncated, counts });
   }
   snapshots.sort((a, b) => a.at - b.at);
-  return { repo, snapshots };
+  return { repo: structure.repo, snapshots, timeline };
 }

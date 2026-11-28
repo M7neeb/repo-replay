@@ -12,8 +12,9 @@ const MAGIC = 'repo-replay 1';
  * 2: the first and last time slices of a sampled history were missing commits.
  * 3: merge commits counted the lines of the branch they merged a second time.
  * 4: older snapshots of big projects lost track of which folder many of their files were in.
+ * 5: the first release (or oldest tag) is read, for its milestone.
  */
-export const BUILD = 4;
+export const BUILD = 5;
 
 export interface BundleMeta {
   builtAt: string;

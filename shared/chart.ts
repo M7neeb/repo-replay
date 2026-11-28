@@ -203,7 +203,7 @@ export function layout(model: ChartModel, opts: { width: number; top: number; he
     const x = X(m.at);
     const when = String(new Date(m.at * 1000).getUTCFullYear());
     // the chart names the first half of a long milestone; the caption on the page says all of it
-    const text = compact ? '' : plain(m.caption).split(' and ')[0];
+    const text = compact ? '' : plain(m.label ?? m.caption.split(' and ')[0]);
     const width = (when.length + text.length + 1) * 8.4;
     const anchor: 'start' | 'end' = x + width > opts.width - 8 ? 'end' : 'start';
     return { at: m.at, x, y: Y(rowAt(model, m.at).files), when, text, anchor, l: anchor === 'end' ? x - width : x - 2, r: anchor === 'end' ? x + 2 : x + width };

@@ -18,6 +18,8 @@ export interface RepoInfo {
   commits: number;
   /** True when the history is too long to read commit by commit and was sampled per time bucket. */
   sampled: boolean;
+  /** The first GitHub release, or the oldest tag when the project publishes no releases. */
+  firstRelease?: { kind: 'release' | 'tag'; tag: string; at: number; count: number };
 }
 
 export interface Author {
@@ -51,6 +53,8 @@ export interface Moment {
   kind: string;
   data: Record<string, unknown>;
   caption: string;
+  /** A few words for the chart's label strip; the caption says it in full. */
+  label?: string;
 }
 
 export interface Replay {

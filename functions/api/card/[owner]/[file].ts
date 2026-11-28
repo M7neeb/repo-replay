@@ -40,7 +40,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, request, env })
     const bundle = decodeBundle(value);
     const input = bundle && cardInput(bundle.pieces);
     if (!input) return placeholder();
-    const moments = findMomentsFrom(input.repo, input.snapshots);
+    const moments = findMomentsFrom(input);
     return svg(cardSvg(chartModelFrom(input.repo, input.snapshots, moments), { theme }), 3600);
   } catch {
     return placeholder();
