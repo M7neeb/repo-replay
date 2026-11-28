@@ -104,6 +104,30 @@ describe('the README card', () => {
     expect(cardSvg(model, { theme: 'light' })).toContain('prefers-reduced-motion');
   });
 
+  it('shows only the finished chart to people who ask for less motion', () => {
+    const svg = cardSvg(model, { theme: 'light' });
+    const css = /<style>(.*?)<\/style>/s.exec(svg)![1];
+    const cut = css.indexOf('@media (prefers-reduced-motion:reduce){');
+    const still = css.slice(cut + '@media (prefers-reduced-motion:reduce){'.length, -1);
+    const hidden = new Set(
+      [...still.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+        .filter((m) => m[2].includes('opacity:0'))
+        .flatMap((m) => m[1].split(',').map((s) => s.trim().replace(/^\./, ''))),
+    );
+    // with the animation off, anything that is only on screen for part of the loop (earlier file counts,
+    // the playhead) would sit on top of the final state
+    const passing = css
+      .slice(0, cut)
+      .split('@keyframes ')
+      .slice(1)
+      .filter((k) => k.slice(0, k.indexOf('}}') + 1).includes(',100%{opacity:0}'))
+      .map((k) => k.slice(0, k.indexOf('{')));
+    expect(passing.length).toBeGreaterThan(3);
+    for (const name of passing) expect(hidden, name).toContain(name);
+    const counts = [...svg.matchAll(/<g class="([^"]+)"><text[^>]*>[\d,]+<\/text><text[^>]*>files in /g)].filter((m) => !m[1].split(' ').some((c) => hidden.has(c)));
+    expect(counts).toHaveLength(1);
+  });
+
   it('never places two milestone labels on top of each other', () => {
     for (const width of [360, 440, 800, 1000]) {
       const L = layout(model, { width, top: 0, height: 200, gutter: 16 });

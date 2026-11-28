@@ -7,12 +7,13 @@ export function json(data: unknown, status = 200): Response {
   });
 }
 
-export const BUNDLE_TYPE = 'text/x-repo-replay';
-
-/** A saved replay goes out exactly as it was stored; the page assembles it. */
-export function bundleResponse(text: string, stale: boolean): Response {
+/**
+ * A saved replay goes out exactly as it was stored; the page assembles it. It is sent as plain text
+ * because Cloudflare only compresses types it knows, and a big replay is mostly repeated text.
+ */
+export function bundleResponse(text: string, stale: boolean, cache = 'no-store'): Response {
   return new Response(text, {
-    headers: { 'content-type': `${BUNDLE_TYPE}; charset=utf-8`, 'cache-control': 'no-store', 'x-replay-stale': stale ? '1' : '0' },
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': cache, 'x-replay-bundle': '1', 'x-replay-stale': stale ? '1' : '0' },
   });
 }
 

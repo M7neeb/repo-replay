@@ -61,7 +61,15 @@ function sampledRepo(owner: string, name: string) {
 export async function serveSaved(page: Page, owner = 'sveltejs', name = 'svelte', opts: { sampled?: boolean } = {}) {
   const { pieces } = opts.sampled ? sampledRepo(owner, name) : fakeRepo(owner, name);
   await page.route(`**/api/replay/${owner}/${name}`, (route) =>
-    route.fulfill({ status: 200, contentType: 'text/x-repo-replay', body: encodeBundle('2026-11-25T10:00:00.000Z', encodePieces(pieces.map(signed))) }),
+    route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'x-replay-bundle': '1' }, body: encodeBundle('2026-11-25T10:00:00.000Z', encodePieces(pieces.map(signed))) }),
+  );
+}
+
+/** The saved replay the home page shows as its example. */
+export async function serveShowcase(page: Page) {
+  const { pieces } = fakeRepo();
+  await page.route('**/api/saved/sveltejs/svelte', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'x-replay-bundle': '1' }, body: encodeBundle('2026-11-25T10:00:00.000Z', encodePieces(pieces.map(signed))) }),
   );
 }
 

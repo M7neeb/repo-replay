@@ -106,6 +106,22 @@ function q(repo: RepoInfo, extra: Record<string, string | number> = {}): string 
   return params.toString();
 }
 
+// pages loaded before saved copies came as plain text still know them by their old type
+const isBundle = (res: Response) => res.headers.get('x-replay-bundle') === '1' || (res.headers.get('content-type') ?? '').startsWith('text/x-repo-replay');
+
+async function replayFrom(res: Response): Promise<Replay> {
+  const bundle = decodeBundle(await res.text());
+  if (!bundle) throw new LoadError('upstream');
+  return assemble(bundle.pieces.map((s) => decodePiece(s.body)), bundle.builtAt);
+}
+
+/** The newest saved replay, if there is one, without building anything or asking GitHub. */
+export async function loadSaved(ref: RepoRef, opts: { api?: Api; signal?: AbortSignal } = {}): Promise<Replay | null> {
+  const api: Api = opts.api ?? ((path, init) => fetch(path, { ...init, signal: opts.signal }));
+  const res = await api(`/api/saved/${ref.owner}/${ref.name}`);
+  return res.ok && isBundle(res) ? replayFrom(res) : null;
+}
+
 export async function loadReplay(
   ref: RepoRef,
   opts: { api?: Api; onProgress?: (p: Progress) => void; signal?: AbortSignal } = {},
@@ -116,11 +132,8 @@ export async function loadReplay(
 
   progress({ stage: 'start' });
   const first = await send(api, `/api/replay/${ref.owner}/${ref.name}`);
-  if (first.ok && (first.headers.get('content-type') ?? '').startsWith('text/x-repo-replay')) {
-    const bundle = decodeBundle(await first.text());
-    if (!bundle) throw new LoadError('upstream');
-    const replay = assemble(bundle.pieces.map((s) => decodePiece(s.body)), bundle.builtAt);
-    return { replay, cached: true, stale: first.headers.get('x-replay-stale') === '1', saved: true };
+  if (first.ok && isBundle(first)) {
+    return { replay: await replayFrom(first), cached: true, stale: first.headers.get('x-replay-stale') === '1', saved: true };
   }
   const start = await readJson<StartResponse>(first);
 

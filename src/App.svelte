@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { parseRepoUrl, type RepoRef } from './lib/repoUrl';
-  import { loadReplay, LoadError, type Loaded, type Progress } from './lib/build';
+  import { loadReplay, loadSaved, LoadError, type Loaded, type Progress } from './lib/build';
+  import type { Replay } from '../shared/replay';
   import { formatCount, plural } from './lib/summary';
   import Player from './lib/Player.svelte';
 
@@ -12,12 +13,22 @@
     | { kind: 'failed'; ref: RepoRef; error: LoadError };
 
   const EXAMPLES = ['sveltejs/svelte', 'torvalds/linux', 'M7neeb/repo-replay'];
+  // the replay already playing on the home page; only a saved copy is used, so it costs no GitHub calls
+  const SHOWCASE = { owner: 'sveltejs', name: 'svelte' };
 
   let link = $state('');
   let linkError = $state('');
   let view = $state<View>({ kind: 'home' });
   let controller: AbortController | null = null;
   let input: HTMLInputElement | undefined = $state();
+  let showcase = $state<Replay | null>(null);
+  let showcaseAsked = false;
+
+  $effect(() => {
+    if (view.kind !== 'home' || showcaseAsked) return;
+    showcaseAsked = true;
+    loadSaved(SHOWCASE).then((r) => (showcase = r)).catch(() => {});
+  });
 
   function refFromPath(path: string): RepoRef | null {
     const parts = path.split('/').filter(Boolean);
@@ -205,6 +216,13 @@
         </p>
       {/if}
     </section>
+    {#if view.kind === 'home' && showcase}
+      <section class="showcase" aria-labelledby="showcase-label">
+        <p class="label" id="showcase-label">Example</p>
+        <Player replay={showcase} example />
+        <a class="full" href="/{SHOWCASE.owner}/{SHOWCASE.name}" onclick={(e) => { e.preventDefault(); link = `github.com/${SHOWCASE.owner}/${SHOWCASE.name}`; go(`/${SHOWCASE.owner}/${SHOWCASE.name}`); }}>Open the full replay</a>
+      </section>
+    {/if}
   {:else if view.kind === 'loading'}
     <section class="loading" aria-busy="true">
       <h1 class="repo">{view.ref.owner}/<b>{view.ref.name}</b></h1>
@@ -241,6 +259,10 @@
   .problem { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--error); border-radius: 6px; }
   .problem strong { display: block; margin-bottom: 2px; overflow-wrap: anywhere; }
   .problem p { margin: 0; }
+
+  .showcase { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); max-width: 960px; }
+  .label { margin: 0 0 14px; color: var(--muted); font-size: 14px; font-weight: 600; }
+  .full { display: inline-block; margin-top: 14px; color: var(--ink); font-size: 15px; font-weight: 600; }
 
   .loading { max-width: 40rem; padding-top: 4vh; }
   .repo { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }

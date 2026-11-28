@@ -9,7 +9,7 @@ export interface ApiError {
   message?: string;
 }
 
-/** Sent when no saved copy exists. A saved copy comes back as a bundle (text/x-repo-replay) instead. */
+/** Sent when no saved copy exists. A saved copy comes back as a bundle instead (marked x-replay-bundle: 1). */
 export interface StartResponse {
   status: 'build';
   repo: RepoInfo;

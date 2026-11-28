@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { Replay } from '../../shared/replay';
   import { chartModel, fmt, liveChartSvg, monthYear, rowAt, slot } from '../../shared/chart';
   import { findMoments } from '../../shared/moments';
   import { captionParts, clock, compact, durationFor, momentAt, readmeSnippet, standingCaption, timeAt } from './playback';
   import { summarize } from './summary';
 
-  let { replay, note = '' }: { replay: Replay; note?: string } = $props();
+  // `example` is the copy on the home page: no side panel, and it starts when it scrolls into view
+  let { replay, note = '', example = false }: { replay: Replay; note?: string; example?: boolean } = $props();
 
   const moments = $derived(replay.moments.length ? replay.moments : findMoments(replay));
   const model = $derived(chartModel(replay, moments));
@@ -15,7 +16,20 @@
 
   // people who ask for less motion get the finished chart and can press play themselves
   let progress = $state(reduceMotion ? 1 : 0);
-  let playing = $state(!reduceMotion);
+  let playing = $state(!reduceMotion && !untrack(() => example));
+  let section: HTMLElement | undefined = $state();
+
+  $effect(() => {
+    if (!example || reduceMotion || !section || typeof IntersectionObserver === 'undefined') return;
+    const seen = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        seen.disconnect();
+        if (progress === 0) playing = true;
+      }
+    }, { threshold: 0.5 });
+    seen.observe(section);
+    return () => seen.disconnect();
+  });
   let width = $state(0);
   let chartEl: HTMLDivElement | undefined = $state();
 
@@ -105,9 +119,9 @@
   }
 </script>
 
-<section class="player" aria-label="Replay of {replay.repo.owner}/{replay.repo.name}">
+<section class="player" class:example bind:this={section} aria-label="Replay of {replay.repo.owner}/{replay.repo.name}">
   <div class="intro">
-    <h1 class="repo">{replay.repo.owner}/<b>{replay.repo.name}</b></h1>
+    <svelte:element this={example ? 'h2' : 'h1'} class="repo">{replay.repo.owner}/<b>{replay.repo.name}</b></svelte:element>
     {#if replay.repo.description}<p class="desc">{replay.repo.description}</p>{/if}
     <p class="meta">
       {monthYear(replay.repo.firstAt)} to {monthYear(replay.repo.headAt)} · {fmt(replay.repo.commits)}
@@ -161,6 +175,7 @@
     </div>
   </div>
 
+  {#if !example}
   <aside class="side">
     <h2>What it’s made of in {monthYear(row.at)}</h2>
     <div class="bar" aria-hidden="true">
@@ -214,6 +229,7 @@
       {note}
     </p>
   </aside>
+  {/if}
 </section>
 
 <style>
@@ -292,7 +308,7 @@
   .foot { color: var(--muted); font-size: 13px; margin: 18px 0 0; }
 
   @media (min-width: 960px) {
-    .player { grid-template-columns: minmax(0, 1fr) 320px; column-gap: 56px; }
+    .player:not(.example) { grid-template-columns: minmax(0, 1fr) 320px; column-gap: 56px; }
     .intro, .story { grid-column: 1; }
     .side { grid-column: 2; grid-row: 1 / 3; padding-top: 4px; }
     .side h2 { margin-top: 0; }

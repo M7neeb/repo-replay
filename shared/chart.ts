@@ -244,7 +244,7 @@ export function layout(model: ChartModel, opts: { width: number; top: number; he
     cum += v;
   });
   ends.sort((a, b) => b.y - a.y);
-  for (let i = 1; i < ends.length; i++) if (ends[i - 1].y - ends[i].y < 34) ends[i].y = ends[i - 1].y - 34;
+  for (let i = 1; i < ends.length; i++) if (ends[i - 1].y - ends[i].y < 40) ends[i].y = ends[i - 1].y - 40;
 
   return { width: opts.width, plot, yMax, X, Y, bands, edges, grid, years, flags, ends };
 }
@@ -330,6 +330,8 @@ export function cardSvg(model: ChartModel, opts: { theme: ThemeName; at?: number
   const frac = (t: number) => ((t - model.t0) / (model.t1 - model.t0)) * (DRAW / LOOP);
   let css = baseCss(opts.theme);
   let n = 0;
+  // shown for only part of the loop; with motion turned off these must stay hidden
+  const passing: string[] = ['ph'];
   const pct = (x: number) => `${Math.min(100, Math.max(0, x * 100)).toFixed(2)}%`;
   // visible from loop fraction a until b (to the end of the loop when b is undefined)
   const show = (a: number, b?: number) => {
@@ -338,6 +340,7 @@ export function cardSvg(model: ChartModel, opts: { theme: ThemeName; at?: number
       return f >= a - 1e-9 && f < (b ?? 2) ? '' : ' opacity="0"';
     }
     const name = `w${n++}`;
+    if (b !== undefined) passing.push(name);
     css += `@keyframes ${name}{0%,${pct(a - 0.0001)}{opacity:0}${pct(a)}{opacity:1}${b !== undefined ? `${pct(b - 0.0001)}{opacity:1}${pct(b)},100%{opacity:0}` : '100%{opacity:1}'}}.${name}{animation:${name} ${LOOP}s linear infinite}`;
     return ` class="${name}"`;
   };
@@ -385,7 +388,7 @@ export function cardSvg(model: ChartModel, opts: { theme: ThemeName; at?: number
   }
   legend += `<text x="${CARD_W - 28}" y="${CARD_H - 30}" font-size="15" class="m" text-anchor="end">repo-replay</text>`;
 
-  css += `@media (prefers-reduced-motion:reduce){*{animation:none!important}.cv{transform:translateX(${coverW}px)}}`;
+  css += `@media (prefers-reduced-motion:reduce){*{animation:none!important}.cv{transform:translateX(${coverW}px)}${passing.map((c) => `.${c}`).join(',')}{opacity:0}}`;
   const label = `${model.owner}/${model.name}: files in the project from ${monthYear(model.t0)} to ${monthYear(model.t1)}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_W}" height="${CARD_H}" viewBox="0 0 ${CARD_W} ${CARD_H}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><style>${css}</style><rect width="${CARD_W}" height="${CARD_H}" fill="${th.surface}"/>${body}${head}${ends}${legend}</svg>`;
 }

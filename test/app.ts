@@ -5,6 +5,9 @@ import { onRequestGet as history } from '../functions/api/history';
 import { onRequestGet as buckets } from '../functions/api/buckets';
 import { onRequestGet as trees } from '../functions/api/trees';
 import { onRequestGet as card } from '../functions/api/card/[owner]/[file]';
+import { onRequestGet as og } from '../functions/api/og/[owner]/[file]';
+import { onRequestGet as saved } from '../functions/api/saved/[owner]/[name]';
+import { onRequestGet as page } from '../functions/[owner]/[name]';
 import type { Env } from '../server/env';
 import type { Api } from '../src/lib/build';
 
@@ -18,10 +21,15 @@ export function apiFor(env: Env, log: string[] = []): Api {
     let handler: Handler | undefined;
     let params: Record<string, string> = {};
     const m = /^\/api\/replay\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-    const c = /^\/api\/card\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    const c = /^\/api\/(card|og)\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    const s = /^\/api\/saved\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    const p = /^\/([^/]+)\/([^/]+)$/.exec(url.pathname);
     if (c) {
-      handler = card as Handler;
-      params = { owner: decodeURIComponent(c[1]), file: decodeURIComponent(c[2]) };
+      handler = (c[1] === 'card' ? card : og) as Handler;
+      params = { owner: decodeURIComponent(c[2]), file: decodeURIComponent(c[3]) };
+    } else if (s) {
+      handler = saved as Handler;
+      params = { owner: decodeURIComponent(s[1]), name: decodeURIComponent(s[2]) };
     } else if (m && request.method === 'GET') {
       handler = start as Handler;
       params = { owner: decodeURIComponent(m[1]), name: decodeURIComponent(m[2]) };
@@ -29,7 +37,14 @@ export function apiFor(env: Env, log: string[] = []): Api {
     else if (url.pathname === '/api/history') handler = history as Handler;
     else if (url.pathname === '/api/buckets') handler = buckets as Handler;
     else if (url.pathname === '/api/trees') handler = trees as Handler;
+    else if (p) {
+      handler = page as Handler;
+      params = { owner: decodeURIComponent(p[1]), name: decodeURIComponent(p[2]) };
+    }
     if (!handler) return new Response('{}', { status: 404 });
-    return handler({ request, env, params } as never);
+    const waits: Promise<unknown>[] = [];
+    const res = await handler({ request, env, params, waitUntil: (w: Promise<unknown>) => waits.push(w), next: async () => new Response('static', { status: 200 }) } as never);
+    await Promise.all(waits);
+    return res;
   };
 }
