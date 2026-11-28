@@ -31,5 +31,6 @@
   },
   "dependencies": {
     "mediabunny": "1.65.2"
-  }
+  },
+  "license": "MIT"
 }

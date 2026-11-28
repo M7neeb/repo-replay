@@ -22,8 +22,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, request, env, n
   } catch {
     // the page still works without its preview
   }
+  // the static page's headers, security rules included, carry over to the filled-in copy
   const headers = new Headers(page.headers);
   headers.delete('content-length');
-  headers.set('cache-control', 'no-store');
+  headers.set('cache-control', 'no-cache');
   return new Response(withMeta(await page.text(), meta), { status: 200, headers });
 };

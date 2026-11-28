@@ -34,6 +34,8 @@ it('gives a replay link the repo’s own title, description and picture', async 
   const res = await apiFor(env)('/Acme/Widget');
   const html = await res.text();
   expect(res.status).toBe(200);
+  // always checked again, but not "no-store", so Back can bring the page back instantly
+  expect(res.headers.get('cache-control')).toBe('no-cache');
   expect(html).toContain('<title>Acme/Widget · repo-replay</title>');
   expect(meta(html, 'og:title')).toBe('How Acme/Widget grew');
   const files = replay.snapshots.at(-1)!.files.toLocaleString('en-US');

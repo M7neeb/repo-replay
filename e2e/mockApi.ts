@@ -97,3 +97,14 @@ export async function serveBuild(page: Page, opts: { slow?: boolean } = {}) {
 export async function serveError(page: Page, status: number, body: object) {
   await page.route('**/api/replay/*/*', (route) => route.fulfill({ status, json: body }));
 }
+
+/** Records anything the page's security rules block, as the browser reports it. */
+export async function watchBlocked(page: Page) {
+  await page.addInitScript(() => {
+    const list: string[] = [];
+    (window as unknown as { blocked: string[] }).blocked = list;
+    document.addEventListener('securitypolicyviolation', (e) => list.push(`${e.effectiveDirective} ${e.blockedURI}`));
+  });
+}
+
+export const blocked = (page: Page) => page.evaluate(() => (window as unknown as { blocked: string[] }).blocked);

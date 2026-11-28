@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { serveSaved, serveShowcase } from './mockApi';
+import { blocked, serveSaved, serveShowcase, watchBlocked } from './mockApi';
 
 test('the home page explains itself and accepts a GitHub link', async ({ page }) => {
   await page.route('**/api/replay/*/*', (route) => new Promise((r) => setTimeout(r, 2000)).then(() => route.abort()));
@@ -69,4 +69,15 @@ test('the home page fits the screen with no sideways scrolling', async ({ page }
   await expect(page.getByRole('region', { name: 'Example' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('the home page runs under the site’s security rules without anything blocked', async ({ page }) => {
+  await watchBlocked(page);
+  await serveShowcase(page);
+  const res = await page.goto('/');
+  expect(res?.headers()['content-security-policy']).toContain("script-src 'self'");
+  await expect(page.getByRole('region', { name: 'Example' })).toBeVisible();
+  await page.getByRole('region', { name: 'Example' }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('region', { name: 'Example' }).getByRole('button', { name: 'Pause' })).toBeVisible();
+  expect(await blocked(page)).toEqual([]);
 });

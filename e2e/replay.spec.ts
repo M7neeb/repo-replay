@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { serveBuild, serveError, serveSaved } from './mockApi';
+import { blocked, serveBuild, serveError, serveSaved, watchBlocked } from './mockApi';
 
 const scrubber = (page: Page) => page.getByRole('slider', { name: 'Position in the replay' });
 
@@ -147,8 +147,11 @@ test('the replay fits the screen with no sideways scrolling', async ({ page }) =
 
 test('save video makes an MP4 of the replay', async ({ page }) => {
   test.setTimeout(180_000);
+  await watchBlocked(page);
   await serveSaved(page);
-  await page.goto('/sveltejs/svelte');
+  const res = await page.goto('/sveltejs/svelte');
+  // the live site's security rules are on here too, so anything they would block shows up
+  expect(res?.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
   await page.getByRole('button', { name: 'Save video' }).click();
   await expect(page.getByText(/Making the video… \d+%/)).toBeVisible();
   const download = page.getByRole('link', { name: 'Download the video' });
@@ -161,6 +164,7 @@ test('save video makes an MP4 of the replay', async ({ page }) => {
     const bytes = new Uint8Array(await (await fetch(a.href)).arrayBuffer());
     return { size: bytes.length, box: String.fromCharCode(...bytes.subarray(4, 8)), name: a.download };
   });
+  expect(await blocked(page)).toEqual([]);
   if (head) {
     expect(head.box).toBe('ftyp');
     expect(head.size).toBeGreaterThan(20_000);
