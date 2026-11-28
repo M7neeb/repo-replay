@@ -122,11 +122,22 @@ export function pickDepth(tree: ScannedTree, max = MAX_ENTRIES): number {
   return depthFromCounts(countDepths(tree), max);
 }
 
-/** "/" collects whatever doesn't fit when even the top level has more than `max` entries. */
+/** Files per top-level folder, for a tree header. */
+export function topFolders(entries: [string, number, number][]): [string, number][] {
+  const m = new Map<string, number>();
+  for (const [path, , files] of entries) {
+    const slash = path.indexOf('/');
+    const k = slash > 0 ? path.slice(0, slash) : '(files)';
+    m.set(k, (m.get(k) ?? 0) + files);
+  }
+  return [...m].sort((a, b) => b[1] - a[1]);
+}
+
+/** "/" collects top-level files that don't fit when even the top level has more than `max` entries. */
 export const OTHER = '/';
 
 export function rollup(tree: ScannedTree, depth: number, max = MAX_ENTRIES) {
-  const groups = new Map<string, [number, number]>();
+  let groups = new Map<string, [number, number]>();
   let files = 0;
   let bytes = 0;
   tree.paths.forEach((path, i) => {
@@ -143,9 +154,28 @@ export function rollup(tree: ScannedTree, depth: number, max = MAX_ENTRIES) {
       groups.set(key, [size, 1]);
     }
   });
+  // An older snapshot can have many more folders than the newest one the depth was picked from.
+  // Close folder levels one at a time (keys are path prefixes, so regrouping the groups is enough)
+  // rather than throwing the overflow into a bucket that forgets which folder it came from.
+  while (groups.size > max && depth > 0) {
+    depth--;
+    const next = new Map<string, [number, number]>();
+    for (const [key, [size, count]] of groups) {
+      const k = keyAt(key, depth);
+      const g = next.get(k);
+      if (g) {
+        g[0] += size;
+        g[1] += count;
+      } else {
+        next.set(k, [size, count]);
+      }
+    }
+    groups = next;
+  }
   let entries: [string, number, number][] = [...groups].map(([path, [size, count]]) => [path, size, count]);
   if (entries.length > max) {
-    entries.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+    // top-level folders stay; the smallest top-level files are the ones lumped together
+    entries.sort((a, b) => Number(b[0].endsWith('/')) - Number(a[0].endsWith('/')) || b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
     const rest = entries.slice(max - 1);
     entries = entries.slice(0, max - 1);
     entries.push([OTHER, rest.reduce((s, e) => s + e[1], 0), rest.reduce((s, e) => s + e[2], 0)]);

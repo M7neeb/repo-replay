@@ -102,3 +102,25 @@ it('puts whatever does not fit under one entry when even the top level is too bi
 it('skips submodules and folders', () => {
   expect(rollup(scan([blob('a'), { path: 'vendor/lib', type: 'commit' }]), 3).files).toBe(1);
 });
+
+it('opens fewer folder levels instead of losing which folder files are in', () => {
+  // an old snapshot with far more small test folders than the depth picked from the newest one allows
+  const items: Item[] = [blob('README.md', 5)];
+  for (let i = 0; i < 300; i++) items.push(blob(`test/case${i}/input.js`, 2), blob(`test/case${i}/output.js`, 2));
+  for (let i = 0; i < 20; i++) items.push(blob(`src/lib/m${i}.js`, 3));
+  const { entries, files } = rollup(scan(items), 2, 50);
+  expect(entries.length).toBeLessThanOrEqual(50);
+  expect(entries.find((e) => e[0] === OTHER)).toBeUndefined();
+  const inFolder = (top: string) => entries.filter((e) => e[0].startsWith(top)).reduce((n, e) => n + e[2], 0);
+  expect(inFolder('test/')).toBe(600);
+  expect(inFolder('src/')).toBe(20);
+  expect(entries.reduce((n, e) => n + e[2], 0)).toBe(files);
+});
+
+it('only lumps top-level files together when even the top level does not fit', () => {
+  const items: Item[] = [blob('src/a.ts')];
+  for (let i = 0; i < 30; i++) items.push(blob(`f${i}.txt`, i + 1));
+  const { entries } = rollup(scan(items), 3, 10);
+  expect(entries).toHaveLength(10);
+  expect(entries.some((e) => e[0] === 'src/')).toBe(true);
+});
