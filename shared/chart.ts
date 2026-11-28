@@ -89,7 +89,7 @@ export function chartModelFrom(repo: RepoInfo, snapshots: LightSnapshot[], momen
   const weight = new Map<string, number>();
   snapshots.forEach((s, i) => {
     const dt = s.at - (i ? snapshots[i - 1].at : t0);
-    for (const [k, n] of counts[i]) if (k !== '(files)') weight.set(k, (weight.get(k) ?? 0) + n * Math.max(dt, 1));
+    for (const [k, n] of counts[i]) if (k !== '(files)' && !k.startsWith('.')) weight.set(k, (weight.get(k) ?? 0) + n * Math.max(dt, 1));
   });
   const series = [...weight].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, SERIES_MAX).map(([k]) => k);
   // the chart starts from nothing at the first commit, unless a snapshot of the first commit exists
@@ -194,31 +194,47 @@ export function layout(model: ChartModel, opts: { width: number; top: number; he
     years.push({ x: X(model.t0), label: monthYear(model.t0) }, { x: X(model.t1), label: monthYear(model.t1) });
   }
 
-  // milestone labels sit in up to three rows above the plot; a row is free when the label touches no other
-  // label in it, its guide line misses every label below, and no guide line from above runs through it
+  // milestone labels sit in up to three rows above the plot. A placement works when no two labels in a row
+  // touch, no guide line runs through a label in a lower row, and no line from above crosses one. With at
+  // most a handful of milestones every arrangement can be tried; keep the one showing the most, lowest first.
   const compact = opts.width < 600;
   const rowsY = [plot.y - 14, plot.y - 36, plot.y - 58];
-  const placed: { ri: number; left: number; right: number; x: number }[] = [];
-  const flags: Layout['flags'] = [];
-  for (const m of model.moments) {
+  const cands = model.moments.map((m) => {
     const x = X(m.at);
-    const y = Y(rowAt(model, m.at).files);
     const when = String(new Date(m.at * 1000).getUTCFullYear());
-    const text = compact ? '' : plain(m.caption);
+    // the chart names the first half of a long milestone; the caption on the page says all of it
+    const text = compact ? '' : plain(m.caption).split(' and ')[0];
     const width = (when.length + text.length + 1) * 8.4;
     const anchor: 'start' | 'end' = x + width > opts.width - 8 ? 'end' : 'start';
-    const l = anchor === 'end' ? x - width : x - 2;
-    const r = anchor === 'end' ? x + 2 : x + width;
-    const fits = (ri: number) => placed.every((p) => {
-      if (p.ri === ri) return r + 14 < p.left || l - 14 > p.right;
-      if (p.ri < ri) return x < p.left - 6 || x > p.right + 6;
-      return p.x < l - 6 || p.x > r + 6;
-    });
-    let ri = rowsY.findIndex((_, i) => fits(i));
-    if (ri === -1) continue; // no room: the caption still tells it, the chart just doesn't label it
-    placed.push({ ri, left: l, right: r, x });
-    flags.push({ at: m.at, x, y, ly: rowsY[ri], anchor, when, text });
-  }
+    return { at: m.at, x, y: Y(rowAt(model, m.at).files), when, text, anchor, l: anchor === 'end' ? x - width : x - 2, r: anchor === 'end' ? x + 2 : x + width };
+  });
+  const clash = (a: (typeof cands)[number], ra: number, b: (typeof cands)[number], rb: number) => {
+    if (ra === rb) return !(a.r + 14 < b.l || a.l - 14 > b.r);
+    const [hi, lo] = ra > rb ? [a, b] : [b, a];
+    return hi.x >= lo.l - 6 && hi.x <= lo.r + 6;
+  };
+  let best: number[] = cands.map(() => -1);
+  let bestScore = -1;
+  const pick: number[] = [];
+  const walk = (i: number) => {
+    if (i === cands.length) {
+      const shown = pick.filter((r) => r >= 0).length;
+      const score = shown * 100 - pick.reduce((n, r) => n + Math.max(r, 0), 0);
+      if (score > bestScore) [bestScore, best] = [score, [...pick]];
+      return;
+    }
+    for (const r of [0, 1, 2, -1]) {
+      if (r >= 0 && pick.some((pr, j) => pr >= 0 && clash(cands[i], r, cands[j], pr))) continue;
+      pick.push(r);
+      walk(i + 1);
+      pick.pop();
+    }
+  };
+  if (cands.length <= 8) walk(0);
+  const flags: Layout['flags'] = cands
+    .map((c, i) => ({ c, r: best[i] }))
+    .filter(({ r }) => r >= 0)
+    .map(({ c, r }) => ({ at: c.at, x: c.x, y: c.y, ly: rowsY[r], anchor: c.anchor, when: c.when, text: c.text }));
 
   const last = model.rows[model.rows.length - 1];
   const ends: Layout['ends'] = [];

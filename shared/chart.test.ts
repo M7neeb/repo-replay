@@ -11,6 +11,9 @@ describe('the chart model', () => {
     expect(m.series[0]).toBe('packages');
     expect(m.series).toContain('test');
     expect(m.series).not.toContain('(files)');
+    // tooling folders (.github, .changeset) never take a colour from the project's own folders
+    expect(m.series.some((s) => s.startsWith('.'))).toBe(false);
+    expect(m.series).toContain('sites');
     for (const row of m.rows.slice(1)) expect(row.v.reduce((a, b) => a + b, 0)).toBe(row.files);
     expect(m.rows[0]).toMatchObject({ at: r.repo.firstAt, files: 0 });
   });
@@ -20,6 +23,14 @@ describe('the chart model', () => {
     const m = chartModel(r);
     expect(m.rows).toHaveLength(2);
     expect(rowAt(m, m.t0).files).toBe(12);
+  });
+
+  it('gives colours to project folders before tooling folders, however big', () => {
+    const r = makeReplay([
+      { at: '2020-01-01', folders: { 'a/': 10, 'b/': 10, 'c/': 10, 'd/': 10, 'e/': 10, 'f/': 10, 'g/': 10, '.github/': 900 } },
+      { at: '2022-01-01', folders: { 'a/': 20, 'b/': 20, 'c/': 20, 'd/': 20, 'e/': 20, 'f/': 20, 'g/': 20, '.github/': 900 } },
+    ]);
+    expect(chartModel(r).series).not.toContain('.github');
   });
 
   it('names top folders the way the chart uses them', () => {
@@ -101,6 +112,21 @@ describe('the README card', () => {
         return { ly: f.ly, l: f.anchor === 'end' ? f.x - w : f.x, r: f.anchor === 'end' ? f.x : f.x + w };
       });
       for (const a of boxes) for (const b of boxes) if (a !== b && a.ly === b.ly) expect(a.r < b.l || b.r < a.l, `width ${width}`).toBe(true);
+    }
+  });
+
+  it('fits the svelte milestones on the card, and no guide line crosses a label', () => {
+    const L = layout(model, { width: 800, top: 102, height: 196, gutter: 188 });
+    expect(L.flags.length).toBeGreaterThanOrEqual(Math.min(4, model.moments.length));
+    const span = (f: (typeof L.flags)[number]) => {
+      const w = (f.when.length + f.text.length + 1) * 8.4;
+      return f.anchor === 'end' ? [f.x - w, f.x] : [f.x, f.x + w];
+    };
+    for (const hi of L.flags) for (const lo of L.flags) {
+      if (hi.ly < lo.ly) {
+        const [l, r] = span(lo);
+        expect(hi.x < l - 4 || hi.x > r + 4, `${hi.when} line through ${lo.when}`).toBe(true);
+      }
     }
   });
 
