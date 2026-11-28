@@ -2,7 +2,7 @@ import type { Env } from '../../../server/env';
 import { fail, json } from '../../../server/http';
 import { verify } from '../../../server/sign';
 import { AssembleError, checkStructure } from '../../../shared/assemble';
-import { decodePieces, encodeBundle } from '../../../shared/bundle';
+import { BUILD, decodePieces, encodeBundle, type BundleMeta } from '../../../shared/bundle';
 import { decodeHeader, MAX_PIECES, type Header } from '../../../shared/pieces';
 import { replayKey } from '../../../shared/replay';
 
@@ -35,7 +35,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!env.REPLAYS) return json({ saved: false });
   const builtAt = new Date().toISOString();
   try {
-    await env.REPLAYS.put(key, encodeBundle(builtAt, text), { expirationTtl: KEEP_SECONDS, metadata: { builtAt } });
+    await env.REPLAYS.put(key, encodeBundle(builtAt, text), { expirationTtl: KEEP_SECONDS, metadata: { builtAt, build: BUILD } satisfies BundleMeta });
     return json({ saved: true });
   } catch {
     // Most likely the free plan's 1,000 writes a day; the page already has the replay.

@@ -6,6 +6,18 @@ import type { Signed } from './pieces';
 
 const MAGIC = 'repo-replay 1';
 
+/**
+ * Raised when a fix changes what a build contains. Saved copies from older builds are built again
+ * on the next visit (they are still shown while GitHub is busy).
+ * 2: the first and last time slices of a sampled history were missing commits.
+ */
+export const BUILD = 2;
+
+export interface BundleMeta {
+  builtAt: string;
+  build?: number;
+}
+
 export function encodePieces(pieces: Signed[]): string {
   return pieces.map((p) => `${p.sig}\n${p.body}`).join('\n');
 }

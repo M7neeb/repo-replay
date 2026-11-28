@@ -12,6 +12,8 @@ export interface FakeRepo {
   people?: number;
   /** This many commits (from the second oldest on) carry dates years before the first commit, as some old imported histories do. */
   strayDates?: number;
+  /** This many commits just before the head carry dates years in the future. */
+  futureDates?: number;
 }
 
 interface FakeCommit {
@@ -39,7 +41,9 @@ class Built {
     for (let i = 0; i < spec.commits; i++) {
       const at = spec.commits === 1 ? spec.headAt : spec.firstAt + Math.round((span * i) / (spec.commits - 1));
       const stray = i > 0 && i <= (spec.strayDates ?? 0);
-      list.push({ oid: sha(`${spec.owner}/${spec.name}#${i}`), at: stray ? spec.firstAt - 10 * 365 * 86400 : at, index: i });
+      const future = i < spec.commits - 1 && i >= spec.commits - 1 - (spec.futureDates ?? 0);
+      const when = stray ? spec.firstAt - 10 * 365 * 86400 : future ? spec.headAt + 5 * 365 * 86400 : at;
+      list.push({ oid: sha(`${spec.owner}/${spec.name}#${i}`), at: when, index: i });
     }
     for (const c of list) this.byOid.set(c.oid, c);
     this.newestFirst = list.reverse();
@@ -142,21 +146,26 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
         });
       }
       if (op === 'Buckets') {
-        const asked = Object.keys(variables).filter((k) => /^s\d+$/.test(k));
-        const first = Number(asked[0].slice(1));
+        const asked = [...query.matchAll(/b(\d+): history\(([^)]*)\)/g)];
+        const first = Number(asked[0][1]);
         const flaky = options.flakyBuckets?.indexOf(first) ?? -1;
         if (asked.length > (options.maxBucketsPerQuery ?? Infinity) || flaky !== -1) {
           if (flaky !== -1) options.flakyBuckets!.splice(flaky, 1);
           return json({ data: null, errors: [{ message: 'Something went wrong while executing your query. This may be the result of a timeout.' }] });
         }
         const object: Record<string, unknown> = {};
-        for (const key of Object.keys(variables)) {
-          const m = /^s(\d+)$/.exec(key);
-          if (!m) continue;
-          const since = Date.parse(variables[`s${m[1]}`]) / 1000;
-          const until = Date.parse(variables[`u${m[1]}`]) / 1000;
+        // Like GitHub: no date at all means no limit, and a date past what it handles finds nothing.
+        const date = (name: string, missing: number) => {
+          const v = variables[name];
+          if (v === undefined) return missing;
+          const t = Date.parse(v) / 1000;
+          return new Date(t * 1000).getUTCFullYear() > 2100 ? NaN : t;
+        };
+        for (const [, i, args] of asked) {
+          const since = args.includes('since:') ? date(`s${i}`, NaN) : -Infinity;
+          const until = args.includes('until:') ? date(`u${i}`, NaN) : Infinity;
           const inside = reachable.filter((c) => c.at >= since && c.at <= until);
-          object[`b${m[1]}`] = { totalCount: inside.length, nodes: inside.slice(0, 20).map((c) => repo.node(c)) };
+          object[`b${i}`] = { totalCount: inside.length, nodes: inside.slice(0, 20).map((c) => repo.node(c)) };
         }
         return json({ data: { repository: { object } } });
       }
@@ -189,6 +198,10 @@ export function memoryKV() {
   const kv = {
     async get(key: string) {
       return store.get(key)?.value ?? null;
+    },
+    async getWithMetadata(key: string) {
+      const hit = store.get(key);
+      return { value: hit?.value ?? null, metadata: hit?.metadata ?? null, cacheStatus: null };
     },
     async put(key: string, value: string, opts?: { metadata?: unknown }) {
       writes++;

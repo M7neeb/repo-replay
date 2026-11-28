@@ -2,6 +2,7 @@ import type { Env } from '../../../../server/env';
 import { bundleResponse, fail, json } from '../../../../server/http';
 import { errorResponseFields, gitHub, GitHubError, toSeconds } from '../../../../server/github';
 import { sign } from '../../../../server/sign';
+import { BUILD, type BundleMeta } from '../../../../shared/bundle';
 import { isOwner, isRepoName } from '../../../../shared/names';
 import { MAX_FULL_COMMITS, MAX_SNAPSHOTS, pieceKey, type RepoHeader } from '../../../../shared/pieces';
 import { replayKey, replayPrefix, type RepoInfo } from '../../../../shared/replay';
@@ -46,7 +47,8 @@ interface RateLimits {
 async function storedReplay(env: Env, key: string): Promise<string | null> {
   if (!env.REPLAYS) return null;
   try {
-    return await env.REPLAYS.get(key);
+    const { value, metadata } = await env.REPLAYS.getWithMetadata<BundleMeta>(key);
+    return value && (metadata?.build ?? 1) >= BUILD ? value : null;
   } catch {
     return null;
   }
@@ -56,7 +58,7 @@ async function storedReplay(env: Env, key: string): Promise<string | null> {
 async function newestStored(env: Env, owner: string, name: string): Promise<string | null> {
   if (!env.REPLAYS) return null;
   try {
-    const list = await env.REPLAYS.list<{ builtAt?: string }>({ prefix: replayPrefix(owner, name) });
+    const list = await env.REPLAYS.list<BundleMeta>({ prefix: replayPrefix(owner, name) });
     const newest = list.keys.sort((a, b) => (b.metadata?.builtAt ?? '').localeCompare(a.metadata?.builtAt ?? ''))[0];
     return newest ? await env.REPLAYS.get(newest.name) : null;
   } catch {

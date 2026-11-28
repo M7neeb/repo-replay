@@ -5,13 +5,14 @@ import { loadReplay, LoadError, snapshotLimit } from '../src/lib/build';
 import { BUCKETS, MAX_ENTRIES, MAX_PIECES, MAX_SNAPSHOTS } from '../shared/pieces';
 import { MAX_PARTS } from '../functions/api/trees';
 import type { Env } from '../server/env';
+import { BUILD } from '../shared/bundle';
 
 const DAY = 24 * 3600;
 const NOW = Math.floor(Date.parse('2026-11-20T12:00:00Z') / 1000);
 
 const tiny: FakeRepo = { owner: 'ana', name: 'notes', commits: 3, files: 2, firstAt: NOW - 20 * DAY, headAt: NOW - DAY };
 const medium: FakeRepo = { owner: 'Acme', name: 'Widget', commits: 3000, files: 1800, firstAt: NOW - 1500 * DAY, headAt: NOW, people: 40 };
-const huge: FakeRepo = { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300, strayDates: 40 };
+const huge: FakeRepo = { owner: 'big', name: 'kernel', commits: 250_000, files: 900, firstAt: NOW - 7000 * DAY, headAt: NOW, people: 300, strayDates: 40, futureDates: 25 };
 const wide: FakeRepo = { owner: 'wide', name: 'mono', commits: 400, files: 12_000, firstAt: NOW - 900 * DAY, headAt: NOW };
 const empty: FakeRepo = { owner: 'ana', name: 'empty', commits: 0, files: 0, firstAt: NOW, headAt: NOW };
 const single: FakeRepo = { owner: 'ana', name: 'hello', commits: 1, files: 1, firstAt: NOW, headAt: NOW };
@@ -135,6 +136,20 @@ describe('building a replay', () => {
     const after = gh.calls.slice(before);
     expect(after).toEqual(['graphql:Meta', 'rest:rate_limit']);
     expect(kv.writes()).toBe(1);
+  });
+
+  it('builds again over a copy saved by an older build, and only shows that copy while GitHub is busy', async () => {
+    const { env, kv } = setup();
+    await loadReplay({ owner: 'ana', name: 'notes' }, { api: apiFor(env) });
+    const [key, entry] = [...kv.store][0];
+    kv.store.set(key, { value: entry.value, metadata: { builtAt: '2026-11-25T00:00:00.000Z' } });
+    const again = await loadReplay({ owner: 'ana', name: 'notes' }, { api: apiFor(env) });
+    expect(again.cached).toBe(false);
+    expect((kv.store.get(key)!.metadata as { build: number }).build).toBe(BUILD);
+    kv.store.set(key, { value: entry.value, metadata: { builtAt: '2026-11-25T00:00:00.000Z' } });
+    gh.state.graphqlLeft = 0;
+    const busy = await loadReplay({ owner: 'ana', name: 'notes' }, { api: apiFor(env) });
+    expect(busy.stale).toBe(true);
   });
 
   it('still builds when nothing can be saved', async () => {
