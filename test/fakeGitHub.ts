@@ -18,6 +18,8 @@ export interface FakeRepo {
   release?: { after: number; tag: string; count: number };
   /** Only tags, no releases. */
   tag?: { after: number; name: string; count: number };
+  /** package.json at the root, or at packages/<name>/, and the npm downloads to report for it. */
+  pkg?: { at: 'root' | 'nested'; json: Record<string, unknown>; weekly?: number };
 }
 
 interface FakeCommit {
@@ -123,6 +125,11 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
               owner: { login: repo.spec.owner },
               description: `The ${repo.spec.name} project`,
               stargazerCount: 42,
+              forkCount: 7,
+              watchers: { totalCount: 5 },
+              issues: { totalCount: 3 },
+              rootPackage: repo.spec.pkg?.at === 'root' ? { text: JSON.stringify(repo.spec.pkg.json) } : null,
+              nestedPackage: repo.spec.pkg?.at === 'nested' && variables.nested === `HEAD:packages/${repo.spec.name}/package.json` ? { text: JSON.stringify(repo.spec.pkg.json) } : null,
               defaultBranchRef: head
                 ? { name: 'main', target: { oid: head.oid, committedDate: new Date(head.at * 1000).toISOString(), history: { totalCount: repo.spec.commits } } }
                 : null,
@@ -185,6 +192,12 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
       throw new Error(`fake GitHub does not know query ${op}`);
     }
 
+    if (u.hostname === 'api.npmjs.org') {
+      calls.push('npm');
+      const name = decodeURIComponent(u.pathname.replace('/downloads/point/last-week/', ''));
+      const r = [...built.values()].find((b) => b.spec.pkg?.json.name === name && b.spec.pkg.weekly != null);
+      return r ? json({ downloads: r.spec.pkg!.weekly, package: name }) : json({ error: 'package not found' }, 404);
+    }
     if (u.pathname === '/rate_limit') {
       calls.push('rest:rate_limit');
       return json({ resources: { core: { remaining: state.coreLeft, reset: resetAt } } });

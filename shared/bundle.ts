@@ -14,8 +14,9 @@ const MAGIC = 'repo-replay 1';
  * 4: older snapshots of big projects lost track of which folder many of their files were in.
  * 5: the first release (or oldest tag) is read, for its milestone.
  * 6: long histories get a snapshot of their first commit, so the chart starts from real files.
+ * 7: up to 100 snapshots instead of 60, and forks, watchers, open issues and npm downloads.
  */
-export const BUILD = 6;
+export const BUILD = 7;
 
 export interface BundleMeta {
   builtAt: string;

@@ -48,6 +48,24 @@ describe('building a replay', () => {
     expect(r.authors.map((a) => a.name).sort()).toEqual(['Person 0', 'Person 1', 'Person 2']);
   });
 
+  it('keeps the repo’s forks, watchers, open issues and, for its own npm package, weekly downloads', async () => {
+    const pkgRepo: FakeRepo = { ...tiny, name: 'lib', pkg: { at: 'nested', json: { name: '@ana/lib', repository: 'github:ana/lib' }, weekly: 5120 } };
+    const fork: FakeRepo = { ...tiny, name: 'react-fork', pkg: { at: 'root', json: { name: 'react', repository: 'github:facebook/react' }, weekly: 9 } };
+    gh = fakeGitHub([pkgRepo, fork]);
+    vi.stubGlobal('fetch', (input: string, init?: RequestInit) => gh.fetch(String(input), init));
+    const api = apiFor({ GITHUB_TOKEN: 'test-token', REPLAYS: memoryKV().kv });
+    const { replay } = await loadReplay({ owner: 'ana', name: 'lib' }, { api });
+    expect(replay.repo).toMatchObject({ forks: 7, watchers: 5, openIssues: 3, npm: { name: '@ana/lib', weekly: 5120 } });
+    // a package.json for someone else's package says nothing about how many people use this repo
+    const other = await loadReplay({ owner: 'ana', name: 'react-fork' }, { api });
+    expect(other.replay.repo.npm).toBeUndefined();
+    expect(gh.calls.filter((c) => c === 'npm')).toHaveLength(1);
+    // the saved copy keeps them
+    const again = await loadReplay({ owner: 'ana', name: 'lib' }, { api });
+    expect(again.cached).toBe(true);
+    expect(again.replay.repo.npm).toEqual({ name: '@ana/lib', weekly: 5120 });
+  });
+
   it('reads a medium repo fully and keeps every snapshot grouped the same way', async () => {
     const { api } = setup();
     const progress: string[] = [];

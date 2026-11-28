@@ -3,15 +3,19 @@ import { bundleResponse, fail, json } from '../../../../server/http';
 import { errorResponseFields, gitHub, GitHubError, toSeconds } from '../../../../server/github';
 import { sign } from '../../../../server/sign';
 import { firstRelease } from '../../../../server/release';
+import { npmPackage, weeklyDownloads } from '../../../../server/stats';
 import { BUILD, type BundleMeta } from '../../../../shared/bundle';
 import { isOwner, isRepoName } from '../../../../shared/names';
 import { MAX_FULL_COMMITS, MAX_SNAPSHOTS, pieceKey, type RepoHeader } from '../../../../shared/pieces';
 import { replayKey, replayPrefix, type RepoInfo } from '../../../../shared/replay';
 
-const META = `query Meta($owner: String!, $name: String!) {
+const META = `query Meta($owner: String!, $name: String!, $nested: String!) {
   rateLimit { remaining resetAt }
   repository(owner: $owner, name: $name) {
-    name owner { login } description stargazerCount
+    name owner { login } description stargazerCount forkCount
+    watchers { totalCount } issues(states: OPEN) { totalCount }
+    rootPackage: object(expression: "HEAD:package.json") { ... on Blob { text } }
+    nestedPackage: object(expression: $nested) { ... on Blob { text } }
     defaultBranchRef { name target { ... on Commit { oid committedDate history(first: 1) { totalCount } } } }
     releases(first: 1, orderBy: { field: CREATED_AT, direction: ASC }) { totalCount nodes { tagName createdAt } }
     refs(refPrefix: "refs/tags/", first: 1, orderBy: { field: TAG_COMMIT_DATE, direction: ASC }) {
@@ -35,6 +39,11 @@ interface Meta {
     owner: { login: string };
     description: string | null;
     stargazerCount: number;
+    forkCount?: number;
+    watchers?: { totalCount: number };
+    issues?: { totalCount: number };
+    rootPackage?: { text?: string | null } | null;
+    nestedPackage?: { text?: string | null } | null;
     defaultBranchRef: {
       name: string;
       target: { oid?: string; committedDate?: string; history?: { totalCount: number } };
@@ -83,7 +92,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
   try {
     const gh = gitHub(env.GITHUB_TOKEN);
     const [meta, limits] = await Promise.all([
-      gh.graphql<Meta>(META, { owner, name }),
+      gh.graphql<Meta>(META, { owner, name, nested: `HEAD:packages/${name}/package.json` }),
       gh.rest<RateLimits>('/rate_limit').catch(() => null),
     ]);
     const repo = meta.repository;
@@ -106,6 +115,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
     };
     const release = firstRelease(repo);
     if (release) info.firstRelease = release;
+    if (repo.forkCount != null) info.forks = repo.forkCount;
+    if (repo.watchers) info.watchers = repo.watchers.totalCount;
+    if (repo.issues) info.openIssues = repo.issues.totalCount;
 
     const stored = await storedReplay(env, replayKey(info));
     if (stored) return bundleResponse(stored, false);
@@ -120,7 +132,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
       return fail('busy', { retryAt: Math.max(limits.resources.core.reset, now + 60) });
     }
 
-    const first = await gh.graphql<First>(FIRST, { owner, name, oid: info.head, after: `${info.head} ${total - 2}` });
+    const pkg = npmPackage([repo.rootPackage?.text, repo.nestedPackage?.text], info.owner, info.name);
+    const [first, weekly] = await Promise.all([
+      gh.graphql<First>(FIRST, { owner, name, oid: info.head, after: `${info.head} ${total - 2}` }),
+      pkg ? weeklyDownloads(pkg) : Promise.resolve(null),
+    ]);
+    if (pkg && weekly != null) info.npm = { name: pkg, weekly };
     const oldest = first.repository?.object?.history?.nodes[0];
     info.firstAt = oldest ? Math.min(toSeconds(oldest.committedDate), info.headAt) : info.headAt;
     // the first commit gets a snapshot too, so the chart starts from its real files rather than from nothing

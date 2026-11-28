@@ -20,6 +20,12 @@ export interface RepoInfo {
   sampled: boolean;
   /** The oldest commit, so it can have a snapshot of its own. */
   firstSha?: string;
+  /** Numbers from the day it was built, not over time. Missing in replays built before they were kept. */
+  forks?: number;
+  watchers?: number;
+  openIssues?: number;
+  /** Set only when the repo's own package.json names a public npm package that points back at it. */
+  npm?: { name: string; weekly: number };
   /** The first GitHub release, or the oldest tag when the project publishes no releases. */
   firstRelease?: { kind: 'release' | 'tag'; tag: string; at: number; count: number };
 }

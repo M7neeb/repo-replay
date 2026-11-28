@@ -92,7 +92,7 @@ export interface Signed {
 
 export const MAX_FULL_COMMITS = 5000;
 export const BUCKETS = 60;
-export const MAX_SNAPSHOTS = 60;
+export const MAX_SNAPSHOTS = 100;
 export const MAX_ENTRIES = 400;
 /** The most tree pieces a build asks for when file lists are read in parts. */
 export const TREE_PIECES = 200;
