@@ -13,8 +13,9 @@ const MAGIC = 'repo-replay 1';
  * 3: merge commits counted the lines of the branch they merged a second time.
  * 4: older snapshots of big projects lost track of which folder many of their files were in.
  * 5: the first release (or oldest tag) is read, for its milestone.
+ * 6: long histories get a snapshot of their first commit, so the chart starts from real files.
  */
-export const BUILD = 5;
+export const BUILD = 6;
 
 export interface BundleMeta {
   builtAt: string;

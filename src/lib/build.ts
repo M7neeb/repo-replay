@@ -227,6 +227,7 @@ export async function loadReplay(
   progress({ stage: 'files', done: 0, total: MAX_SNAPSHOTS });
   const { depth, headFiles, headParts } = await headRead;
 
+  if (repo.firstSha && !candidates.some((c) => c.sha === repo.firstSha)) candidates.push({ sha: repo.firstSha, at: repo.firstAt });
   const shas = pickSnapshots(candidates, repo.head, snapshotLimit(headParts));
   const total = shas.length;
   let done = 1;

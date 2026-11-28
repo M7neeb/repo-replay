@@ -98,6 +98,11 @@ describe('building a replay', () => {
     expect(r.snapshots.length).toBeLessThanOrEqual(MAX_SNAPSHOTS);
     expect(r.snapshots.at(-1)!.sha).toBe(r.repo.head);
     expect(out.saved).toBe(true);
+    // the chart starts from the first commit's own files, not from nothing
+    expect(r.repo.firstSha).toBeTruthy();
+    expect(r.snapshots[0].sha).toBe(r.repo.firstSha);
+    expect(r.snapshots[0].at).toBe(r.repo.firstAt);
+    expect(r.snapshots[0].files).toBeGreaterThan(0);
   });
 
   it('reads file lists too big for one call in parts and adds them up', async () => {

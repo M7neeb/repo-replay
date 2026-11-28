@@ -32,6 +32,7 @@ export function checkStructure(headers: Header[]): Structure {
   if (headers.some((h) => h.key !== key)) throw new AssembleError('pieces from another repo or commit');
 
   const dates = new Map<string, number>([[repo.head, repo.headAt]]);
+  if (repo.firstSha) dates.set(repo.firstSha, repo.firstAt);
   const pages: number[] = [];
   const bucketPieces: number[] = [];
 
@@ -156,6 +157,7 @@ export function buildTimeline(pieces: Piece[], structure: Structure): { timeline
   };
 
   const dates = new Map<string, number>([[repo.head, repo.headAt]]);
+  if (repo.firstSha) dates.set(repo.firstSha, repo.firstAt);
   const timeline: TimelineRow[] = [];
   if (!repo.sampled) {
     for (let p = pages.length - 1; p >= 0; p--) {

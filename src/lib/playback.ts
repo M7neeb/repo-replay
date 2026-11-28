@@ -20,13 +20,19 @@ export function momentAt(moments: Moment[], t: number, span = Infinity): Moment 
   return found && t - found.at <= span / 10 ? found : null;
 }
 
-/** What to say when no milestone is recent: the biggest folder at that point, straight from the counts. */
-export function standingCaption(model: ChartModel, row: ChartRow): string {
+/**
+ * What to say when no milestone is recent: the biggest folder at that point, straight from the counts.
+ * When the last milestone already named it, say it is still the biggest rather than repeat the news.
+ */
+export function standingCaption(model: ChartModel, row: ChartRow, last: Moment | null = null): string {
   let best = -1;
   model.series.forEach((_, k) => {
     if (row.v[k] > 0 && (best === -1 || row.v[k] > row.v[best])) best = k;
   });
-  return best === -1 ? '' : `The biggest folder is \`${model.series[best]}/\``;
+  if (best === -1) return '';
+  const name = model.series[best];
+  if (last?.kind === 'top-folder' && last.data.folder === name) return `\`${name}/\` is still the biggest folder`;
+  return `The biggest folder is \`${name}/\``;
 }
 
 /** 89863 -> 89.9k, so a line of stats fits a phone. */

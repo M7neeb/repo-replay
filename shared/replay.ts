@@ -18,6 +18,8 @@ export interface RepoInfo {
   commits: number;
   /** True when the history is too long to read commit by commit and was sampled per time bucket. */
   sampled: boolean;
+  /** The oldest commit, so it can have a snapshot of its own. */
+  firstSha?: string;
   /** The first GitHub release, or the oldest tag when the project publishes no releases. */
   firstRelease?: { kind: 'release' | 'tag'; tag: string; at: number; count: number };
 }

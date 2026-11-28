@@ -151,7 +151,7 @@ export function fakeGitHub(repos: FakeRepo[], options: FakeOptions = {}) {
               object: {
                 history: {
                   pageInfo: { hasNextPage: end < reachable.length - 1, endCursor: page.length ? `${from.oid} ${end}` : null },
-                  nodes: page.map((c) => repo.node(c)),
+                  nodes: page.map((c) => (op === 'First' ? { oid: c.oid, committedDate: repo.node(c).committedDate } : repo.node(c))),
                 },
               },
             },

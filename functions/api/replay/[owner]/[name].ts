@@ -24,7 +24,7 @@ const META = `query Meta($owner: String!, $name: String!) {
 // History cursors are "<sha> <index>", so the oldest commit is one step after index total - 2.
 const FIRST = `query First($owner: String!, $name: String!, $oid: GitObjectID!, $after: String!) {
   repository(owner: $owner, name: $name) {
-    object(oid: $oid) { ... on Commit { history(first: 1, after: $after) { nodes { committedDate } } } }
+    object(oid: $oid) { ... on Commit { history(first: 1, after: $after) { nodes { oid committedDate } } } }
   }
 }`;
 
@@ -46,7 +46,7 @@ interface Meta {
 
 
 interface First {
-  repository: { object: { history?: { nodes: { committedDate: string }[] } } | null } | null;
+  repository: { object: { history?: { nodes: { oid: string; committedDate: string }[] } } | null } | null;
 }
 
 interface RateLimits {
@@ -123,6 +123,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, env }) => {
     const first = await gh.graphql<First>(FIRST, { owner, name, oid: info.head, after: `${info.head} ${total - 2}` });
     const oldest = first.repository?.object?.history?.nodes[0];
     info.firstAt = oldest ? Math.min(toSeconds(oldest.committedDate), info.headAt) : info.headAt;
+    // the first commit gets a snapshot too, so the chart starts from its real files rather than from nothing
+    if (oldest) info.firstSha = oldest.oid;
 
     const piece: RepoHeader = { kind: 'repo', key: pieceKey(info.owner, info.name, info.head), repo: info };
     return json({ status: 'build', repo: info, piece: await sign(env.GITHUB_TOKEN!, piece) });

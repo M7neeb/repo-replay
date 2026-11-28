@@ -22,7 +22,7 @@
   const t = $derived(timeAt(model, progress));
   const row = $derived(rowAt(model, t));
   const moment = $derived(momentAt(model.moments, t, model.t1 - model.t0));
-  const caption = $derived(moment?.caption ?? standingCaption(model, row));
+  const caption = $derived(moment?.caption ?? standingCaption(model, row, momentAt(model.moments, t)));
   const chart = $derived(width > 0 ? liveChartSvg(model, Math.round(width), 'replay') : null);
   const table = $derived(summarize(replay));
   const parts = $derived.by(() => {

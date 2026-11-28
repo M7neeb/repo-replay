@@ -32,6 +32,9 @@ it('lets a milestone go once it is old and says what is true instead', () => {
   const m = chartModel(makeReplay([{ at: '2020-01-01', folders: { 'src/': 10, 'docs/': 30 } }, { at: '2022-01-01', folders: { 'src/': 50, 'docs/': 30 } }]));
   expect(standingCaption(m, m.rows[0])).toBe('The biggest folder is `docs/`');
   expect(standingCaption(m, m.rows[1])).toBe('The biggest folder is `src/`');
+  const news = { at: 0, kind: 'top-folder', data: { folder: 'src' }, caption: '`src/` becomes the biggest folder' };
+  expect(standingCaption(m, m.rows[1], news)).toBe('`src/` is still the biggest folder');
+  expect(standingCaption(m, m.rows[0], news)).toBe('The biggest folder is `docs/`');
 });
 
 it('shortens big counts for one line on a phone', () => {
