@@ -57,6 +57,9 @@ class Built {
       additions: 10 + (c.index % 7),
       deletions: c.index % 3,
       changedFilesIfAvailable: 1 + (c.index % 4),
+      // every tenth commit is a merge, carrying the lines of the branch it brings in
+      parents: { totalCount: c.index % 10 === 9 ? 2 : 1 },
+      ...(c.index % 10 === 9 ? { additions: 5000, deletions: 3000 } : {}),
       author: { name: `Person ${p}`, user: p === 0 ? null : { login: `person${p}`, avatarUrl: `https://avatars.example/${p}` } },
     };
   }

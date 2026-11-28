@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { formatDate, plural, summarize } from './summary';
+import { formatDate, formatShort, plural, summarize } from './summary';
 import type { Replay } from '../../shared/replay';
 
 const t = (iso: string) => Date.parse(iso) / 1000;
@@ -44,4 +44,12 @@ it('writes dates and counts the way people read them', () => {
   expect(formatDate(t('2016-11-26T10:00:00Z'))).toBe('26 Nov 2016');
   expect(plural(1, 'commit', 'commits')).toBe('1 commit');
   expect(plural(3412, 'commit', 'commits')).toBe('3,412 commits');
+});
+
+it('shortens big numbers so a table row fits a phone', () => {
+  expect(formatShort(9999)).toBe('9,999');
+  expect(formatShort(12_345)).toBe('12.3k');
+  expect(formatShort(456_789)).toBe('457k');
+  expect(formatShort(44_227_464)).toBe('44.2M');
+  expect(formatShort(453_713_450)).toBe('454M');
 });

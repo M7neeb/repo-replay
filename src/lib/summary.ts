@@ -75,6 +75,14 @@ export function formatCount(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
+/** Short form for big numbers so a row of them fits a phone: 9,999, 12.3k, 44.2M. */
+export function formatShort(n: number): string {
+  const v = Math.round(n);
+  if (Math.abs(v) < 10_000) return v.toLocaleString('en-US');
+  if (Math.abs(v) < 1_000_000) return `${(v / 1000).toFixed(v < 100_000 ? 1 : 0)}k`;
+  return `${(v / 1_000_000).toFixed(v < 100_000_000 ? 1 : 0)}M`;
+}
+
 export function plural(n: number, one: string, many: string): string {
   return `${formatCount(n)} ${n === 1 ? one : many}`;
 }

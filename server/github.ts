@@ -89,7 +89,7 @@ export function gitHub(token: string | undefined, fetcher: Fetch = fetch): GitHu
   };
 }
 
-export const COMMIT_FIELDS = `oid committedDate additions deletions changedFilesIfAvailable author { name user { login avatarUrl(size: 64) } }`;
+export const COMMIT_FIELDS = `oid committedDate additions deletions changedFilesIfAvailable parents { totalCount } author { name user { login avatarUrl(size: 64) } }`;
 
 export interface GqlCommit {
   oid: string;
@@ -97,6 +97,7 @@ export interface GqlCommit {
   additions: number;
   deletions: number;
   changedFilesIfAvailable: number | null;
+  parents?: { totalCount: number };
   author: { name: string | null; user: { login: string; avatarUrl: string } | null } | null;
 }
 
@@ -122,7 +123,10 @@ export function toRows(commits: GqlCommit[], authors: RawAuthor[], index: Map<st
       }
     }
     shas.push(c.oid);
-    rows.push([toSeconds(c.committedDate), c.additions ?? 0, c.deletions ?? 0, c.changedFilesIfAvailable ?? 0, a]);
+    // GitHub counts a merge's lines against its first parent, so they include everything on the
+    // merged branch, whose own commits are counted already.
+    const merge = (c.parents?.totalCount ?? 1) > 1;
+    rows.push(merge ? [toSeconds(c.committedDate), 0, 0, 0, a] : [toSeconds(c.committedDate), c.additions ?? 0, c.deletions ?? 0, c.changedFilesIfAvailable ?? 0, a]);
   }
   return { shas, rows };
 }

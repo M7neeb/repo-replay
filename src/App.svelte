@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { parseRepoUrl, type RepoRef } from './lib/repoUrl';
   import { loadReplay, LoadError, type Loaded, type Progress } from './lib/build';
-  import { summarize, formatCount, formatDate, plural } from './lib/summary';
+  import { summarize, formatCount, formatDate, formatShort, plural } from './lib/summary';
 
   type View =
     | { kind: 'home' }
@@ -191,8 +191,8 @@
               <tr>
                 <th scope="row">{p.label}</th>
                 <td>{formatCount(p.commits)}</td>
-                <td>{formatCount(p.added)}</td>
-                <td>{formatCount(p.deleted)}</td>
+                <td>{formatShort(p.added)}</td>
+                <td>{formatShort(p.deleted)}</td>
                 <td>{p.files === null ? '' : formatCount(p.files)}</td>
                 <td>{formatCount(p.newPeople)}</td>
               </tr>

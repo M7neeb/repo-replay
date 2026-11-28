@@ -69,6 +69,21 @@ describe('building a replay', () => {
     expect(progress.at(-1)).toBe('save');
   });
 
+  it('does not count the lines a merge brings in a second time', async () => {
+    const { api } = setup();
+    const r = (await loadReplay({ owner: 'acme', name: 'widget' }, { api })).replay;
+    let added = 0;
+    let deleted = 0;
+    for (let i = 0; i < 3000; i++) {
+      if (i % 10 === 9) continue;
+      added += 10 + (i % 7);
+      deleted += i % 3;
+    }
+    expect(r.timeline.reduce((n, row) => n + row[2], 0)).toBe(added);
+    expect(r.timeline.reduce((n, row) => n + row[3], 0)).toBe(deleted);
+    expect(r.timeline).toHaveLength(3000);
+  });
+
   it('samples a huge history by time instead of reading every commit', async () => {
     const { api } = setup();
     const out = await loadReplay({ owner: 'big', name: 'kernel' }, { api });

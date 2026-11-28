@@ -10,8 +10,9 @@ const MAGIC = 'repo-replay 1';
  * Raised when a fix changes what a build contains. Saved copies from older builds are built again
  * on the next visit (they are still shown while GitHub is busy).
  * 2: the first and last time slices of a sampled history were missing commits.
+ * 3: merge commits counted the lines of the branch they merged a second time.
  */
-export const BUILD = 2;
+export const BUILD = 3;
 
 export interface BundleMeta {
   builtAt: string;

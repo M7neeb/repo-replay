@@ -110,6 +110,26 @@ export function checkStructure(headers: Header[]): Structure {
   return { repo, pages, bucketPieces, trees };
 }
 
+export function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * A commit's typical size in a sample: the mean without the top and bottom tenth. The median alone
+ * reads too low, because most commits are small and a few big ones carry much of the work.
+ * Samples under 10 are too small to trim, so they use the median.
+ */
+export function typical(values: number[]): number {
+  if (values.length < 10) return median(values);
+  const sorted = [...values].sort((a, b) => a - b);
+  const cut = Math.floor(sorted.length / 10);
+  const kept = sorted.slice(cut, sorted.length - cut);
+  return kept.reduce((s, v) => s + v, 0) / kept.length;
+}
+
 function authorKey(a: RawAuthor): string {
   return a.login ? `@${a.login.toLowerCase()}` : a.name.toLowerCase();
 }
@@ -149,8 +169,9 @@ export function assemble(pieces: Piece[], builtAt: string): Replay {
       const piece = pieces[index] as Extract<Piece, { kind: 'buckets' }>;
       piece.buckets.forEach((b, j) => {
         const sample = piece.samples[j] ?? [];
-        const scale = sample.length ? b.count / sample.length : 0;
-        const sum = (k: 1 | 2 | 3) => Math.round(sample.reduce((s, row) => s + row[k], 0) * scale);
+        // A plain mean lets one huge commit in a sample of 20 (a vendored library, a generated
+        // file) multiply into hundreds of millions of lines; see typical().
+        const sum = (k: 1 | 2 | 3) => Math.round(typical(sample.map((row) => row[k])) * b.count);
         const tally = new Map<number, number>();
         sample.forEach((row, i) => {
           dates.set(b.shas[i], row[0]);
