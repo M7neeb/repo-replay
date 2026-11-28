@@ -60,3 +60,9 @@ it('gives a README line with both themes that links back to the replay', () => {
   expect(s).toContain('src="https://repo-replay.pages.dev/api/card/sveltejs/svelte.svg"');
   expect(s).toContain('(prefers-color-scheme: dark)');
 });
+
+it('gives the graph style its own line, written as valid HTML', () => {
+  const s = readmeSnippet('https://repo-replay.pages.dev', 'sveltejs', 'svelte', 'graph');
+  expect(s).toContain('srcset="https://repo-replay.pages.dev/api/card/sveltejs/svelte.svg?style=graph&amp;theme=dark"');
+  expect(s).toContain('src="https://repo-replay.pages.dev/api/card/sveltejs/svelte.svg?style=graph"');
+});

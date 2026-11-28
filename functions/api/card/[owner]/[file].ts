@@ -3,9 +3,10 @@ import { savedReplay } from '../../../../server/saved';
 import { cardInput } from '../../../../shared/cardInput';
 import { cardSvg, chartModelFrom, placeholderSvg, type ThemeName } from '../../../../shared/chart';
 import { findMomentsFrom } from '../../../../shared/moments';
+import { graphCardSvg } from '../../../../shared/graphCard';
 import { isOwner, isRepoName } from '../../../../shared/names';
 
-// The README card: /api/card/<owner>/<repo>.svg, ?theme=dark for GitHub's dark mode.
+// The README card: /api/card/<owner>/<repo>.svg, ?theme=dark for GitHub's dark mode, ?style=graph for the graph.
 // It draws the newest saved replay; opening the replay page is what refreshes it.
 
 function svg(body: string, maxAge: number): Response {
@@ -31,10 +32,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, request, env })
   const placeholder = () => svg(placeholderSvg(owner, name, theme, url.host), 600);
   try {
     const saved = await savedReplay(env, owner, name);
-    const input = saved && cardInput(saved.pieces);
+    const graph = url.searchParams.get('style') === 'graph';
+    const input = saved && cardInput(saved.pieces, { inner: graph });
     if (!input) return placeholder();
-    const moments = findMomentsFrom(input);
-    return svg(cardSvg(chartModelFrom(input.repo, input.snapshots, moments), { theme }), 3600);
+    const model = chartModelFrom(input.repo, input.snapshots, findMomentsFrom(input));
+    return svg(graph ? graphCardSvg(model, input.snapshots, input.inner, { theme }) : cardSvg(model, { theme }), 3600);
   } catch {
     return placeholder();
   }

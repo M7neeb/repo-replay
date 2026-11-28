@@ -6,15 +6,22 @@ Paste a GitHub link and watch how the project grew, from the first commit to tod
 
 **[repo-replay.pages.dev](https://repo-replay.pages.dev)**
 
-A replay is a chart of the project's files, stacked by top-level folder, that draws itself over
-30 to 60 seconds. Captions mark the moments you can check on GitHub: the first commit, the first
-release, a folder arriving or taking over, the busiest stretch, a big cleanup.
+A replay plays the project's history in 30 to 60 seconds, in two views you can switch between:
+
+- **Live ticker**: the files, stacked by top-level folder, with the camera following the newest
+  commit and the scale growing with the project. At the end it pulls back to show everything.
+- **Graph**: every folder is a dot joined to the folder it sits in. Folders appear, grow and fade
+  away as the project changes.
+
+Captions mark the moments you can check on GitHub: the first commit, the first release, a folder
+arriving or taking over, the busiest stretch, a big cleanup.
 
 - **Share it.** Every replay has its own link (`/owner/repo`), and the link shows the project's
   chart when you paste it into a chat.
 - **Save it as a video.** A square MP4 made in your browser, ready for Photos, WhatsApp or X.
 - **Put it in your README.** The card above is one line of HTML, in GitHub's light and dark
-  themes. It shows the newest saved replay, so it catches up whenever someone opens the page.
+  themes, as a live ticker or as a graph (`?style=graph`). It shows the newest saved replay, so it
+  catches up whenever someone opens the page.
 
 It works with public repos only. There's no sign-in, no cookies and no tracking. The only thing
 kept is the public repo data a replay is drawn from.
@@ -25,7 +32,9 @@ The site runs on Cloudflare Pages. The functions in `functions/` talk to GitHub 
 token. A function on the free plan gets 10 ms of CPU and 50 requests to other servers per call,
 so the page builds a replay in small steps:
 
-- `GET /api/replay/:owner/:name` returns the saved replay, or what's needed to build one.
+- `GET /api/replay/:owner/:name` returns the saved replay, or what's needed to build one. It also
+  notes the repo's stars, forks, watchers and open issues, and its weekly npm downloads when the
+  repo's own `package.json` names a public package that points back at it.
 - `GET /api/history` reads 500 commits per call. Histories over 5,000 commits are sampled instead
   (`GET /api/buckets`): 60 slices of time, each with its commit count and a sample.
 - `GET /api/trees` lists the files at up to 60 points in time. Big file lists are read in parts.
@@ -36,8 +45,10 @@ can only contain data that came from GitHub.
 
 Everything else reads saved replays and never calls GitHub:
 
-- `GET /api/card/:owner/:name.svg` (`?theme=dark`): the animated README card. It reads only the
-  small signed summaries, so it stays inside the CPU limit for big projects.
+- `GET /api/card/:owner/:name.svg` (`?theme=dark`, `?style=graph`): the animated README card. It
+  reads only the small signed summaries (and, for the graph, the newest file list when it's small),
+  so it stays inside the CPU limit for big projects. The graph is laid out by folder size rather
+  than simulated, which keeps it to a few milliseconds.
 - `GET /api/og/:owner/:name.png`: the picture for link previews. Drawing an SVG with a full
   renderer took about 50 ms of CPU, so `server/raster.ts` draws the chart's shapes directly, sets
   text from pre-rendered Noto Sans glyphs (`server/glyphs.ts`, made by `scripts/glyphs.mjs`) and
@@ -45,7 +56,8 @@ Everything else reads saved replays and never calls GitHub:
 - `GET /api/saved/:owner/:name`: the replay on the home page.
 - `/:owner/:name`: the app's page with that repo's title and preview picture filled in.
 
-Videos are made in the browser: `src/lib/video.ts` draws each frame on a canvas and
+The page draws both views on a canvas (`src/lib/stage.ts`). Videos are made in the browser with
+the same drawing: `src/lib/video.ts` draws each frame and
 [Mediabunny](https://mediabunny.dev) encodes them as H.264 in an MP4 with WebCodecs.
 
 ## Limits

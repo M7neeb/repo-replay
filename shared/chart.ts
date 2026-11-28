@@ -296,20 +296,23 @@ function baseCss(theme: ThemeName) {
   return `text{font-family:${FONT}}.m{fill:${th.muted}}.i{fill:${th.ink}}.h{paint-order:stroke;stroke:${th.surface};stroke-width:5px;stroke-linejoin:round}`;
 }
 
+/** A loop fraction as a keyframe offset, the way the cards write them. */
+export const keyPct = (x: number) => `${Math.min(100, Math.max(0, x * 100)).toFixed(2)}%`;
+
 /**
- * The player's chart: static drawing plus hooks the page moves each frame. The data sits in a clip path
- * (#<id>-reveal rect), milestones carry data-at, and colours also come as classes so the page's CSS can theme it.
+ * Which snapshot counts get their own stretch of a card's loop, and when (loop fractions a to b; the last
+ * runs to the end). Snapshots minutes apart can start in the same hundredth of a percent; their keyframes
+ * then contradict each other and browsers fade the count in from the start of the loop, so two counts show
+ * at once. Of snapshots that start at the same written offset only the last is kept.
  */
-export function liveChartSvg(model: ChartModel, width: number, id: string): { svg: string; layout: Layout; height: number } {
-  const L = layout(model, { width, top: 0, height: width < 600 ? 170 : 220, gutter: 16, left: width < 600 ? 44 : 60 });
-  const height = L.plot.y + L.plot.h + 32;
-  const reveal = `${id}-reveal`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">`
-    + `<defs><clipPath id="${reveal}"><rect data-reveal="1" x="0" y="0" width="${L.plot.x}" height="${height}"/></clipPath></defs>`
-    + (({ base, flags }) => base + flags)(drawChart(model, L, 'light', (at, s) => `<g data-at="${at}">${s}</g>`, reveal))
-    + `<line data-playhead="1" x1="${L.plot.x}" x2="${L.plot.x}" y1="${L.plot.y - 2}" y2="${L.plot.y + L.plot.h}" class="ph" stroke="${THEMES.light.ink}" stroke-width="1.5"/>`
-    + `</svg>`;
-  return { svg, layout: L, height };
+export function countTicks<T>(rows: T[], start: (row: T) => number): { row: T; a: number; b?: number }[] {
+  const kept: { row: T; a: number }[] = [];
+  rows.forEach((row, i) => {
+    const a = i === 0 ? 0 : start(row);
+    if (kept.length && keyPct(kept[kept.length - 1].a) === keyPct(a)) kept.pop();
+    kept.push({ row, a });
+  });
+  return kept.map((k, i) => ({ ...k, b: kept[i + 1]?.a }));
 }
 
 const CARD_W = 800;
@@ -364,12 +367,9 @@ export function cardSvg(model: ChartModel, opts: { theme: ThemeName; at?: number
 
   let head = `<text x="28" y="48" font-size="28" font-weight="600" class="i">${esc(model.owner)}/<tspan font-weight="700">${esc(model.name)}</tspan></text>`;
   head += `<text x="28" y="76" font-size="17" class="m">Files over time, ${monthYear(model.t0)} to ${monthYear(model.t1)}</text>`;
-  const ticks = model.rows.slice(1);
-  ticks.forEach((r, i) => {
-    const a = i === 0 ? 0 : frac(r.at);
-    const b = i === ticks.length - 1 ? undefined : frac(ticks[i + 1].at);
+  for (const { row: r, a, b } of countTicks(model.rows.slice(1), (r) => frac(r.at))) {
     head += `<g${show(a, b)}><text x="${CARD_W - 28}" y="48" font-size="28" font-weight="600" class="i" text-anchor="end">${fmt(r.files)}</text><text x="${CARD_W - 28}" y="76" font-size="17" class="m" text-anchor="end">files in ${monthYear(r.at)}</text></g>`;
-  });
+  }
 
   let ends = '';
   for (const e of L.ends) ends += `<text x="${L.plot.x + L.plot.w + 12}" y="${(e.y + 5).toFixed(1)}" font-size="16" class="i">${esc(e.label)}<tspan class="m" x="${L.plot.x + L.plot.w + 12}" dy="18">${fmt(e.value)}</tspan></text>`;

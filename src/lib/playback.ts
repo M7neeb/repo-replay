@@ -52,10 +52,17 @@ export function captionParts(caption: string): { code: boolean; text: string }[]
   return caption.split('`').map((text, i) => ({ code: i % 2 === 1, text })).filter((p) => p.text);
 }
 
+/** Where a README card lives, in either style and theme. */
+export function cardUrl(origin: string, owner: string, name: string, style: 'ticker' | 'graph', dark: boolean): string {
+  const q = [style === 'graph' && 'style=graph', dark && 'theme=dark'].filter(Boolean).join('&');
+  return `${origin}/api/card/${owner}/${name}.svg${q ? `?${q}` : ''}`;
+}
+
 /** The README snippet: the card in GitHub's light and dark themes, linking back to the replay. */
-export function readmeSnippet(origin: string, owner: string, name: string): string {
-  const card = `${origin}/api/card/${owner}/${name}.svg`;
-  return `<a href="${origin}/${owner}/${name}"><picture><source media="(prefers-color-scheme: dark)" srcset="${card}?theme=dark"><img alt="How ${owner}/${name} grew" src="${card}"></picture></a>`;
+export function readmeSnippet(origin: string, owner: string, name: string, style: 'ticker' | 'graph' = 'ticker'): string {
+  // & is written as &amp; so the line is valid HTML wherever it's pasted
+  const url = (dark: boolean) => cardUrl(origin, owner, name, style, dark).replace(/&/g, '&amp;');
+  return `<a href="${origin}/${owner}/${name}"><picture><source media="(prefers-color-scheme: dark)" srcset="${url(true)}"><img alt="How ${owner}/${name} grew" src="${url(false)}"></picture></a>`;
 }
 
 /** The caption at time t: a recent milestone, else what stands out in the counts. The player and the video share it. */

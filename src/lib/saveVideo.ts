@@ -1,6 +1,7 @@
 import type { ChartModel, ThemeName } from '../../shared/chart';
+import { Stage, type StageData, type View } from './stage';
 import { durationFor } from './playback';
-import { drawFrame, VIDEO_SIZE, videoFrame } from './video';
+import { drawFrame, VIDEO_SIZE } from './video';
 
 // Save video: every frame is drawn on a canvas and encoded as H.264 in an MP4 by the browser itself
 // (WebCodecs), so nothing is uploaded and it works offline once the replay is open. H.264 in MP4 is what
@@ -34,7 +35,7 @@ export async function canSaveVideo(): Promise<boolean> {
 export async function makeVideo(
   model: ChartModel,
   commits: number,
-  opts: { theme: ThemeName; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
+  opts: { theme: ThemeName; data: StageData; view: View; signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
 ): Promise<Blob> {
   if (!(await canSaveVideo())) throw new VideoUnsupported();
   const { BufferTarget, CanvasSource, Mp4OutputFormat, Output } = await import('mediabunny');
@@ -50,13 +51,15 @@ export async function makeVideo(
   output.addVideoTrack(source, { frameRate: FPS });
   await output.start();
 
-  const frame = videoFrame(model, commits, opts.theme);
   const duration = durationFor(commits);
+  const stage = new Stage(opts.data);
+  stage.view = opts.view;
+  const frame = { model, stage, commits, theme: opts.theme, duration };
   const total = frameCount(commits);
   try {
     for (let i = 0; i < total; i++) {
       opts.signal?.throwIfAborted();
-      drawFrame(ctx, frame, progressAtFrame(i, duration));
+      drawFrame(ctx, frame, progressAtFrame(i, duration), (i * 1000) / FPS);
       await source.add(i / FPS, 1 / FPS);
       if (i % 10 === 0) opts.onProgress?.(i, total);
     }

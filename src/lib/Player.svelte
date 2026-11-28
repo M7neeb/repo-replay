@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import type { Replay } from '../../shared/replay';
-  import { chartModel, fmt, liveChartSvg, monthYear, rowAt, slot } from '../../shared/chart';
+  import { chartModel, fmt, monthYear, rowAt, slot } from '../../shared/chart';
+  import { Stage, stageData, type View } from './stage';
   import { findMoments } from '../../shared/moments';
-  import { captionAt, captionParts, clock, compact, durationFor, readmeSnippet, timeAt } from './playback';
+  import { captionAt, captionParts, cardUrl, clock, compact, durationFor, readmeSnippet, timeAt } from './playback';
   import { summarize } from './summary';
 
   // `example` is the copy on the home page: no side panel, and it starts when it scrolls into view
@@ -31,12 +32,22 @@
     return () => seen.disconnect();
   });
   let width = $state(0);
-  let chartEl: HTMLDivElement | undefined = $state();
+  let canvas: HTMLCanvasElement | undefined = $state();
+  let view = $state<View>('ticker');
+  const stage = $derived(new Stage(stageData(replay, model)));
+  const height = $derived(Math.round(Math.min(480, Math.max(300, width * 0.68))));
+  let dark = $state(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  $effect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const q = matchMedia('(prefers-color-scheme: dark)');
+    const change = () => (dark = q.matches);
+    q.addEventListener('change', change);
+    return () => q.removeEventListener('change', change);
+  });
 
   const t = $derived(timeAt(model, progress));
   const row = $derived(rowAt(model, t));
   const caption = $derived(captionAt(model, t));
-  const chart = $derived(width > 0 ? liveChartSvg(model, Math.round(width), 'replay') : null);
   const table = $derived(summarize(replay));
   const parts = $derived.by(() => {
     const list = model.series.map((name, k) => ({ name: `${name}/`, files: row.v[k], cls: slot(model, k) }));
@@ -71,28 +82,41 @@
     playing = !playing;
   }
 
-  // the chart is drawn once per size; each frame only moves the reveal, the playhead and the milestones
+  // the picture keeps drawing while it's on screen, so the camera and the graph can settle after a jump
+  let onScreen = $state(true);
   $effect(() => {
-    if (!chart || !chartEl) return;
-    const L = chart.layout;
-    const x = L.X(t);
-    const reveal = chartEl.querySelector('[data-reveal]');
-    reveal?.setAttribute('width', String(Math.max(0, x)));
-    const head = chartEl.querySelector('[data-playhead]');
-    head?.setAttribute('x1', String(x));
-    head?.setAttribute('x2', String(x));
-    head?.setAttribute('visibility', progress > 0 && progress < 1 ? 'visible' : 'hidden');
-    chartEl.querySelectorAll<SVGGElement>('[data-at]').forEach((g) => {
-      g.setAttribute('visibility', Number(g.dataset.at) <= t ? 'visible' : 'hidden');
-    });
+    if (!section || typeof IntersectionObserver === 'undefined') return;
+    const seen = new IntersectionObserver((entries) => (onScreen = entries.some((e) => e.isIntersecting)));
+    seen.observe(section);
+    return () => seen.disconnect();
+  });
+  $effect(() => {
+    void view;
+    stage.view = view;
+    stage.reset();
+  });
+  $effect(() => {
+    const c = canvas, w = width, h = height, s = stage;
+    if (!c || !w || !onScreen) return;
+    const ratio = Math.min(2, devicePixelRatio || 1);
+    c.width = Math.round(w * ratio);
+    c.height = Math.round(h * ratio);
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    let raf = 0;
+    const draw = (now: number) => {
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      untrack(() => s.draw(ctx, { x: 0, y: 0, w, h }, t, now, { theme: dark ? 'dark' : 'light', ending: progress >= 1, duration }));
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
   });
 
   function scrubFromPointer(e: PointerEvent) {
-    if (!chart) return;
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const L = chart.layout;
-    const x = ((e.clientX - box.left) / box.width) * L.width;
-    progress = Math.min(1, Math.max(0, (x - L.plot.x) / L.plot.w));
+    progress = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
   }
 
   function chartDown(e: PointerEvent) {
@@ -124,6 +148,8 @@
       const dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
       const blob = await makeVideo(model, replay.repo.commits, {
         theme: dark ? 'dark' : 'light',
+        data: stageData(replay, model),
+        view,
         signal: stop.signal,
         onProgress: (done, total) => {
           if (videoStop === stop) video = { kind: 'making', share: done / total };
@@ -168,7 +194,9 @@
   const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
   let copied = $state<'' | 'link' | 'readme'>('');
-  const snippet = $derived(readmeSnippet(typeof location === 'undefined' ? '' : location.origin, replay.repo.owner, replay.repo.name));
+  const origin = typeof location === 'undefined' ? '' : location.origin;
+  let cardStyle = $state<'ticker' | 'graph'>('ticker');
+  const snippet = $derived(readmeSnippet(origin, replay.repo.owner, replay.repo.name, cardStyle));
   async function copy(what: 'link' | 'readme') {
     try {
       await navigator.clipboard.writeText(what === 'link' ? location.href : snippet);
@@ -187,6 +215,8 @@
     <p class="meta">
       {monthYear(replay.repo.firstAt)} to {monthYear(replay.repo.headAt)} · {fmt(replay.repo.commits)}
       {replay.repo.commits === 1 ? 'commit' : 'commits'} · {compact(replay.repo.stars)} {replay.repo.stars === 1 ? 'star' : 'stars'}
+      {#if replay.repo.forks}· {compact(replay.repo.forks)} {replay.repo.forks === 1 ? 'fork' : 'forks'}{/if}
+      {#if replay.repo.npm}· <span title="{replay.repo.npm.name} on npm, the week before this replay was built">{compact(replay.repo.npm.weekly)} npm downloads a week</span>{/if}
     </p>
     <div class="now" aria-live="off">
       <span class="count" data-testid="count">{fmt(row.files)} {row.files === 1 ? 'file' : 'files'}</span>
@@ -200,15 +230,19 @@
   </div>
 
   <div class="story">
+    <div class="views" role="group" aria-label="View">
+      <button aria-pressed={view === 'ticker'} onclick={() => (view = 'ticker')}>Live ticker</button>
+      <button aria-pressed={view === 'graph'} onclick={() => (view = 'graph')}>Graph</button>
+    </div>
     <div
       class="chart"
       bind:clientWidth={width}
-      bind:this={chartEl}
       onpointerdown={chartDown}
       onpointermove={chartMove}
       role="presentation"
     >
-      {#if chart}{@html chart.svg}{/if}
+      <canvas bind:this={canvas} style="height: {height}px" aria-hidden="true"></canvas>
+      <p class="vh">{view === 'ticker' ? 'Files over time, stacked by folder.' : 'The folders as a graph, each joined to the folder it sits in.'} The same numbers are in the table below.</p>
     </div>
     <div class="controls">
       <button class="play" onclick={toggle} aria-label={playing ? 'Pause' : progress >= 1 ? 'Play again' : 'Play'}>
@@ -287,7 +321,19 @@
           <strong>Put it in your README</strong>
           <button class="btn small" onclick={() => copy('readme')}>{copied === 'readme' ? 'Copied' : 'Copy'}</button>
         </div>
-        <p>An animated version of this chart for GitHub, in light and dark. It shows the newest saved replay, so it catches up whenever someone opens this page.</p>
+        <p>Pick a style. Both play on GitHub, follow its light and dark mode, and catch up whenever someone opens this page.</p>
+        <div class="styles" role="radiogroup" aria-label="Card style">
+          {#each [['ticker', 'Live ticker', 'numbers over time'], ['graph', 'Graph', 'the shape of it']] as [value, label, hint] (value)}
+            <label class="style">
+              <input type="radio" name="card-style" value={value} bind:group={cardStyle} />
+              <picture class="frame">
+                <source media="(prefers-color-scheme: dark)" srcset={cardUrl(origin, replay.repo.owner, replay.repo.name, value as 'ticker' | 'graph', true)} />
+                <img src={cardUrl(origin, replay.repo.owner, replay.repo.name, value as 'ticker' | 'graph', false)} alt="" width="800" height="480" loading="lazy" />
+              </picture>
+              <span class="sname">{label} <span>{hint}</span></span>
+            </label>
+          {/each}
+        </div>
         <code class="snippet">{snippet}</code>
       </div>
       <span class="vh" role="status">{copied === 'link' ? 'Link copied' : copied === 'readme' ? 'README line copied' : ''}</span>
@@ -329,27 +375,10 @@
   .caption { font-size: 22px; line-height: 1.3; font-weight: 500; margin: 10px 0 8px; max-width: 32ch; min-height: 2.6em; text-wrap: balance; }
   .caption code { font: 600 0.9em ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; background: var(--sunk); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
   .chart { margin: 4px 0 0; touch-action: pan-y; cursor: ew-resize; user-select: none; }
-  .chart :global(svg) { display: block; width: 100%; height: auto; overflow: visible; }
-
-  /* the chart SVG carries light colours; these take over so it follows the page's theme */
-  .chart :global(.band.s1) { fill: var(--s1); } .chart :global(.edge.s1) { stroke: var(--s1); }
-  .chart :global(.band.s2) { fill: var(--s2); } .chart :global(.edge.s2) { stroke: var(--s2); }
-  .chart :global(.band.s3) { fill: var(--s3); } .chart :global(.edge.s3) { stroke: var(--s3); }
-  .chart :global(.band.s4) { fill: var(--s4); } .chart :global(.edge.s4) { stroke: var(--s4); }
-  .chart :global(.band.s5) { fill: var(--s5); } .chart :global(.edge.s5) { stroke: var(--s5); }
-  .chart :global(.band.s6) { fill: var(--s6); } .chart :global(.edge.s6) { stroke: var(--s6); }
-  .chart :global(.band.o) { fill: var(--other); } .chart :global(.edge.o) { stroke: var(--other); }
-  .chart :global(.band) { fill-opacity: var(--fill); }
-  .chart :global(.gap) { stroke: var(--surface); }
-  .chart :global(.gr) { stroke: var(--grid); }
-  .chart :global(.ax) { stroke: var(--line); }
-  .chart :global(text) { font-family: inherit; }
-  .chart :global(.m) { fill: var(--muted); }
-  .chart :global(.i) { fill: var(--ink); }
-  .chart :global(.h) { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
-  .chart :global(.lead) { stroke: var(--muted); }
-  .chart :global(.dot) { fill: var(--ink); stroke: var(--surface); }
-  .chart :global(.ph) { stroke: var(--ink); }
+  .chart canvas { display: block; width: 100%; }
+  .views { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); margin: 4px 0 10px; }
+  .views button { height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .views button[aria-pressed='true'] { background: var(--ink); color: var(--surface); }
 
   .controls { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 12px; margin-top: 8px; }
   .play { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--ink); color: var(--surface); display: grid; place-items: center; cursor: pointer; }
@@ -389,6 +418,17 @@
   .readme { border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
   .readme-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .readme p { color: var(--muted); font-size: 14px; margin: 6px 0 10px; }
+  .styles { display: grid; gap: 10px; margin-bottom: 10px; }
+  .style { display: grid; gap: 6px; cursor: pointer; }
+  .style input { position: absolute; opacity: 0; pointer-events: none; }
+  .frame { display: block; border-radius: 8px; padding: 2px; border: 2px solid var(--hair); }
+  .frame img { display: block; width: 100%; height: auto; border-radius: 5px; }
+  .style input:checked + .frame { border-color: var(--ink); }
+  .style input:focus-visible + .frame { outline: 2px solid var(--s1); outline-offset: 2px; }
+  .sname { font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  .sname::before { content: ''; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); flex: none; box-sizing: border-box; }
+  .style input:checked ~ .sname::before { border: 4.5px solid var(--ink); }
+  .sname span { font-weight: 400; color: var(--muted); }
   .snippet { display: block; font: 12px/1.5 ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; background: var(--sunk); border-radius: 6px; padding: 10px; overflow-wrap: anywhere; color: var(--muted); max-height: 7.5em; overflow: auto; user-select: all; }
 
   .tablewrap { margin-top: 20px; font-size: 14px; }
@@ -401,7 +441,8 @@
   .foot { color: var(--muted); font-size: 13px; margin: 18px 0 0; }
 
   @media (min-width: 960px) {
-    .player:not(.example) { grid-template-columns: minmax(0, 1fr) 320px; column-gap: 56px; }
+    .player:not(.example) { grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: auto 1fr; column-gap: 56px; }
+    .story { align-self: start; }
     .intro, .story { grid-column: 1; }
     .side { grid-column: 2; grid-row: 1 / 3; padding-top: 4px; }
     .side h2 { margin-top: 0; }

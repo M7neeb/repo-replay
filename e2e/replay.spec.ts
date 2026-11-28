@@ -13,7 +13,7 @@ test('builds a replay, shows progress, then plays it', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
   await expect.poll(async () => Number(await scrubber(page).inputValue())).toBeGreaterThan(0);
   await expect(page.getByTestId('caption')).toHaveText('First commit');
-  await expect(page.locator('.chart svg')).toBeVisible();
+  await expect(page.locator('.chart canvas')).toBeVisible();
   await expect(page.getByText('saved, so it opens straight away next time')).toBeVisible();
 });
 
@@ -92,6 +92,31 @@ test('copy puts the README line on the clipboard', async ({ page, context, brows
   expect(text).toContain('<picture>');
 });
 
+test('the README line follows the card style you pick', async ({ page }) => {
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  const line = page.locator('.snippet');
+  await expect(line).toContainText('/api/card/sveltejs/svelte.svg?theme=dark');
+  // people tap the picture or the name; the radio itself is drawn by the frame around the picture
+  await page.getByText('the shape of it').click();
+  await expect(page.getByRole('radio', { name: /Graph/ })).toBeChecked();
+  await expect(line).toContainText('/api/card/sveltejs/svelte.svg?style=graph&amp;theme=dark');
+  await page.getByText('numbers over time').click();
+  await expect(line).not.toContainText('style=graph');
+});
+
+test('switching to the graph keeps playing from the same point', async ({ page }) => {
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  await page.getByRole('button', { name: 'Pause' }).click();
+  const scrub = page.getByRole('slider', { name: 'Position in the replay' });
+  await scrub.fill('500');
+  await page.getByRole('button', { name: 'Graph', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Graph', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await scrub.inputValue()).toBe('500');
+  await expect(page.locator('.chart canvas')).toBeVisible();
+});
+
 test('back goes home and forward opens the replay again', async ({ page }) => {
   await serveSaved(page);
   await page.goto('/');
@@ -140,7 +165,7 @@ test('a lost connection says so', async ({ page }) => {
 test('the replay fits the screen with no sideways scrolling', async ({ page }) => {
   await serveSaved(page);
   await page.goto('/sveltejs/svelte');
-  await expect(page.locator('.chart svg')).toBeVisible();
+  await expect(page.locator('.chart canvas')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });

@@ -57,6 +57,24 @@ it('draws the card from the saved replay, and its numbers match the full replay'
   }
 }, 60_000);
 
+it('draws the graph style too, with every top folder as a dot and the inner folders of the biggest', async () => {
+  for (const r of repos) {
+    const { replay } = await loadReplay({ owner: r.owner, name: r.name }, { api: apiFor(env) });
+    for (const theme of ['', '&theme=dark']) {
+      const { res, text } = await get(`/api/card/${r.owner}/${r.name}.svg?style=graph${theme}`);
+      expect(res.headers.get('content-type')).toContain('image/svg+xml');
+      expect(res.headers.get('content-security-policy')).toContain("default-src 'none'");
+      expect(xmlProblems(text), r.name).toEqual([]);
+      expect(text).toContain('Its folders');
+      expect(text).toContain(theme ? '#0d1117' : '#ffffff');
+      expect(text).not.toContain('<script');
+      const tops = new Set(lightSnapshots(replay).flatMap((s) => [...s.counts.keys()]).filter((k) => k !== '(files)'));
+      // one growing dot per top folder (up to 36), each titled with its name
+      for (const k of [...tops].slice(0, 36)) expect(text, `${r.name} ${k}`).toContain(`<title>${k}/:`);
+    }
+  }
+}, 60_000);
+
 it('shows how to make the card for a repo nobody has replayed yet', async () => {
   const { res, text } = await get('/api/card/someone/unknown.svg');
   expect(res.status).toBe(200);

@@ -1,5 +1,6 @@
 import { buildTimeline, checkStructure } from './assemble';
 import type { LightSnapshot } from './chart';
+import { innerFolders } from './graphCard';
 import type { MomentInput } from './moments';
 import { decodeHeader, decodePiece, type Header, type Piece, type Signed, type TreeHeader } from './pieces';
 
@@ -7,7 +8,10 @@ import { decodeHeader, decodePiece, type Header, type Piece, type Signed, type T
 // each top folder held. That comes from the commit pages (or time buckets) plus the small tree headers,
 // without reading any file list, so the server can draw the card for a big project inside its CPU budget.
 
-export function cardInput(signed: Signed[]): MomentInput | null {
+/** The graph card also looks one level into the newest file list, when it is small enough to read. */
+const INNER_PARTS = 16;
+
+export function cardInput(signed: Signed[], opts: { inner?: boolean } = {}): (MomentInput & { inner: [string, number][] }) | null {
   const headers: Header[] = signed.map((p) => decodeHeader(p.body));
   const structure = checkStructure(headers);
   // only the commit pages and buckets need their data; tree pieces stay headers
@@ -30,5 +34,9 @@ export function cardInput(signed: Signed[]): MomentInput | null {
     snapshots.push({ at: dates.get(t.sha) ?? structure.repo.headAt, files, truncated, counts });
   }
   snapshots.sort((a, b) => a.at - b.at);
-  return { repo: structure.repo, snapshots, timeline };
+  const head = structure.trees.find((t) => (headers[t.parts[0]] as TreeHeader).sha === structure.repo.head);
+  const inner = opts.inner && head && head.parts.length <= INNER_PARTS
+    ? innerFolders([], head.parts.flatMap((i) => (decodePiece(signed[i].body) as Piece & { entries: [string, number, number][] }).entries))
+    : [];
+  return { repo: structure.repo, snapshots, timeline, inner };
 }

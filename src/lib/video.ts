@@ -1,9 +1,9 @@
-import { fmt, layout, monthYear, rowAt, THEMES, type ChartModel, type Layout, type ThemeName } from '../../shared/chart';
+import { fmt, monthYear, rowAt, THEMES, type ChartModel, type ThemeName } from '../../shared/chart';
+import type { Stage } from './stage';
 import { captionAt, captionParts } from './playback';
 
-// One frame of the saved video: a square that reads well on a phone, drawn straight onto a canvas from
-// the same chart layout the page and the README card use. The chart is laid out at half size and drawn
-// at twice the scale, so its labels come out big enough to read in a chat.
+// One frame of the saved video: a square that reads well on a phone, with the same picture as the page
+// (live ticker or graph) under the repo's name, count and caption.
 
 export const VIDEO_SIZE = 1080;
 const S = 2;
@@ -16,21 +16,11 @@ type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 export interface Frame {
   model: ChartModel;
-  layout: Layout;
+  stage: Stage;
   commits: number;
   theme: ThemeName;
-}
-
-export function videoFrame(model: ChartModel, commits: number, theme: ThemeName): Frame {
-  return { model, commits, theme, layout: layout(model, { width: (VIDEO_SIZE - PAD * 2) / S, top: 0, height: 150, gutter: 12, left: 40 }) };
-}
-
-const pts = (s: string) => s.split(' ').map((p) => p.split(',').map(Number) as [number, number]);
-
-function path(ctx: Ctx, points: [number, number][], close: boolean) {
-  ctx.beginPath();
-  points.forEach(([x, y], i) => (i ? ctx.lineTo(PAD + x * S, CHART_Y + y * S) : ctx.moveTo(PAD + x * S, CHART_Y + y * S)));
-  if (close) ctx.closePath();
+  /** seconds the replay itself lasts, for the milestone pulse */
+  duration: number;
 }
 
 /** The text in at most `size` px, smaller if it would not fit `width`. */
@@ -40,11 +30,10 @@ function fitFont(ctx: Ctx, text: string, weight: number, size: number, width: nu
   return w > width ? Math.floor((size * width) / w) : size;
 }
 
-/** Draws the replay as it stands at `progress` (0 to 1). */
-export function drawFrame(ctx: Ctx, f: Frame, progress: number) {
-  const { model, layout: L } = f;
+/** Draws the replay as it stands at `progress` (0 to 1); `now` is the frame's time in ms. Frames go in order. */
+export function drawFrame(ctx: Ctx, f: Frame, progress: number, now: number) {
+  const { model } = f;
   const th = THEMES[f.theme];
-  const colour = (k: number) => (k === model.series.length ? th.other : th.series[k]);
   const p = Math.min(1, Math.max(0, progress));
   const t = model.t0 + p * (model.t1 - model.t0);
   const row = rowAt(model, t);
@@ -98,96 +87,12 @@ export function drawFrame(ctx: Ctx, f: Frame, progress: number) {
 
   drawCaption(ctx, captionAt(model, t), th);
 
-  // grid and axis
-  ctx.lineWidth = 2;
-  ctx.textAlign = 'right';
-  for (const g of L.grid) {
-    ctx.strokeStyle = th.grid;
-    ctx.beginPath();
-    ctx.moveTo(PAD + L.plot.x * S, CHART_Y + g.y * S);
-    ctx.lineTo(PAD + (L.plot.x + L.plot.w) * S, CHART_Y + g.y * S);
-    ctx.stroke();
-    ctx.font = `400 26px ${FONT}`;
-    ctx.fillStyle = th.muted;
-    ctx.fillText(g.label, PAD + (L.plot.x - 8) * S, CHART_Y + (g.y + 5) * S);
-  }
-  const base = CHART_Y + (L.plot.y + L.plot.h) * S;
-  ctx.strokeStyle = th.faint;
-  ctx.beginPath();
-  ctx.moveTo(PAD + L.plot.x * S, base + 1);
-  ctx.lineTo(PAD + (L.plot.x + L.plot.w) * S, base + 1);
-  ctx.stroke();
-  ctx.textAlign = 'center';
-  ctx.font = `400 28px ${FONT}`;
-  ctx.fillStyle = th.muted;
-  for (const y of L.years) {
-    ctx.beginPath();
-    ctx.moveTo(PAD + y.x * S, base);
-    ctx.lineTo(PAD + y.x * S, base + 8);
-    ctx.stroke();
-    ctx.fillText(y.label, PAD + y.x * S, base + 44);
-  }
-
-  // the data, revealed up to now
-  const x = PAD + L.X(t) * S;
+  // the picture itself, from the same stage the page draws, at twice the scale so its labels read in a chat
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, x, W);
-  ctx.clip();
-  for (const b of L.bands) {
-    path(ctx, pts(b.points), true);
-    ctx.globalAlpha = th.fill;
-    ctx.fillStyle = colour(b.key);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-  for (const e of L.edges) {
-    const line = pts(e.points);
-    path(ctx, line, false);
-    ctx.strokeStyle = th.surface;
-    ctx.lineWidth = 4 * S;
-    ctx.stroke();
-    path(ctx, line, false);
-    ctx.strokeStyle = colour(e.key);
-    ctx.lineWidth = 2 * S;
-    ctx.stroke();
-  }
+  ctx.translate(PAD - 8, CHART_Y);
+  ctx.scale(S, S);
+  f.stage.draw(ctx, { x: 0, y: 0, w: (W - PAD * 2 + 16) / S, h: (W - CHART_Y - 28) / S }, t, now, { theme: f.theme, ending: p >= 1, duration: f.duration });
   ctx.restore();
-
-  // milestones that have happened, and the playhead
-  ctx.textAlign = 'left';
-  for (const m of L.flags) {
-    if (m.at > t) continue;
-    ctx.strokeStyle = th.muted;
-    ctx.globalAlpha = 0.7;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(PAD + m.x * S, CHART_Y + (m.ly + 5) * S);
-    ctx.lineTo(PAD + m.x * S, CHART_Y + (m.y - 5) * S);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = th.surface;
-    ctx.beginPath();
-    ctx.arc(PAD + m.x * S, CHART_Y + m.y * S, 5.5 * S, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = th.ink;
-    ctx.beginPath();
-    ctx.arc(PAD + m.x * S, CHART_Y + m.y * S, 3.5 * S, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.font = `700 30px ${FONT}`;
-    ctx.textAlign = m.anchor === 'end' ? 'right' : 'left';
-    ctx.fillText(m.when, PAD + (m.anchor === 'end' ? m.x - 5 : m.x + 5) * S, CHART_Y + m.ly * S);
-  }
-  if (p < 1) {
-    ctx.strokeStyle = th.ink;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(x, CHART_Y + (L.plot.y - 2) * S);
-    ctx.lineTo(x, base);
-    ctx.stroke();
-  }
-
-  drawLegend(ctx, model, colour, th);
 }
 
 function drawCaption(ctx: Ctx, caption: string, th: (typeof THEMES)[ThemeName]) {
@@ -233,28 +138,4 @@ function drawCaption(ctx: Ctx, caption: string, th: (typeof THEMES)[ThemeName]) 
       x += word.w + ctx.measureText(' ').width;
     }
   });
-}
-
-function drawLegend(ctx: Ctx, model: ChartModel, colour: (k: number) => string, th: (typeof THEMES)[ThemeName]) {
-  ctx.font = `400 28px ${FONT}`;
-  ctx.textAlign = 'left';
-  let x = PAD;
-  let y = 1000;
-  for (let k = 0; k <= model.series.length; k++) {
-    if (model.rows.every((r) => r.v[k] === 0)) continue;
-    const label = k === model.series.length ? 'other' : `${model.series[k]}/`;
-    const w = 34 + ctx.measureText(label).width + 30;
-    if (x + w > VIDEO_SIZE - PAD + 30) {
-      if (y > 1000) break;
-      x = PAD;
-      y += 44;
-    }
-    ctx.fillStyle = colour(k);
-    ctx.beginPath();
-    ctx.roundRect(x, y - 22, 24, 24, 5);
-    ctx.fill();
-    ctx.fillStyle = th.muted;
-    ctx.fillText(label, x + 34, y);
-    x += w;
-  }
 }

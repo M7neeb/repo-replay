@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cardSvg, chartModel, layout, liveChartSvg, rowAt, topFolder } from './chart';
+import { cardSvg, chartModel, layout, lightSnapshots, rowAt, topFolder } from './chart';
+import { graphCardSvg } from './graphCard';
 import { findMoments } from './moments';
 import { makeReplay, svelteLike } from '../test/replays';
 import { xmlProblems } from '../test/xml';
@@ -160,15 +161,7 @@ describe('the README card', () => {
   });
 });
 
-describe('the player chart', () => {
-  it('is valid SVG with the hooks the player moves', () => {
-    const { svg } = liveChartSvg(chartModel(svelteLike(), findMoments(svelteLike())), 380, 'c1');
-    expect(xmlProblems(svg)).toEqual([]);
-    expect(svg).toContain('data-reveal');
-    expect(svg).toContain('data-playhead');
-    expect(svg).toContain('data-at=');
-  });
-
+describe('a very short history', () => {
   it('copes with a history of one day', () => {
     const r = makeReplay([{ at: '2026-11-01T10:00:00Z', folders: { 'src/': 3 } }, { at: '2026-11-01T12:00:00Z', folders: { 'src/': 4 } }]);
     expect(xmlProblems(cardSvg(chartModel(r, findMoments(r)), { theme: 'light' }))).toEqual([]);
@@ -176,7 +169,7 @@ describe('the player chart', () => {
 });
 
 describe('folder names from a repo are untrusted', () => {
-  it('cannot inject markup into the chart or the card', () => {
+  it('cannot inject markup into either card', () => {
     const evil = '<img src=x onerror=alert(1)>"&';
     const r = makeReplay([
       { at: '2020-01-01', folders: { 'src/': 100 } },
@@ -184,7 +177,7 @@ describe('folder names from a repo are untrusted', () => {
     ], { owner: 'a', name: 'b' });
     const model = chartModel(r, findMoments(r));
     expect(model.moments.some((m) => m.caption.includes(evil))).toBe(true);
-    for (const svg of [liveChartSvg(model, 900, 'x').svg, cardSvg(model, { theme: 'light' }), cardSvg(model, { theme: 'dark', at: 1 })]) {
+    for (const svg of [cardSvg(model, { theme: 'light' }), cardSvg(model, { theme: 'dark', at: 1 }), graphCardSvg(model, lightSnapshots(r), [[`${evil}/inner`, 50]], { theme: 'dark' })]) {
       expect(svg).not.toContain('<img');
       expect(xmlProblems(svg)).toEqual([]);
     }
