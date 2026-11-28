@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import { encodePiece, pieceKey, type Header } from '../shared/pieces';
+import { bucketEdges, BUCKETS, encodePiece, pieceKey, type Header } from '../shared/pieces';
 import { encodeBundle, encodePieces } from '../shared/bundle';
 import type { RepoInfo } from '../shared/replay';
 
@@ -41,8 +41,25 @@ export function fakeRepo(owner = 'sveltejs', name = 'svelte'): { repo: RepoInfo;
 
 const signed = (p: { header: Header; data: object }) => ({ body: encodePiece(p.header, p.data), sig: '0'.repeat(64) });
 
-export async function serveSaved(page: Page, owner = 'sveltejs', name = 'svelte') {
-  const { pieces } = fakeRepo(owner, name);
+// A long history as the server samples it: 60 time slices with 100 commits each, and the latest files.
+function sampledRepo(owner: string, name: string) {
+  const { repo: base, pieces } = fakeRepo(owner, name);
+  const repo: RepoInfo = { ...base, commits: BUCKETS * 100, sampled: true };
+  const key = pieceKey(owner, name, repo.head);
+  const edges = bucketEdges(repo.firstAt, repo.headAt, BUCKETS);
+  const buckets = edges.slice(0, -1).map((since, i) => ({ since, until: edges[i + 1] - 1, count: 100, shas: i === BUCKETS - 1 ? [repo.head] : [] }));
+  const samples = buckets.map((_, i) => (i === BUCKETS - 1 ? [[repo.headAt, 50, 10, 3, 0]] : []));
+  return {
+    pieces: [
+      { header: { kind: 'repo', key, repo } as Header, data: {} },
+      { header: { kind: 'buckets', key, from: 0, buckets } as Header, data: { authors: [{ name: 'Rich', login: 'rich', avatar: null }], samples } },
+      pieces.at(-1)!,
+    ],
+  };
+}
+
+export async function serveSaved(page: Page, owner = 'sveltejs', name = 'svelte', opts: { sampled?: boolean } = {}) {
+  const { pieces } = opts.sampled ? sampledRepo(owner, name) : fakeRepo(owner, name);
   await page.route(`**/api/replay/${owner}/${name}`, (route) =>
     route.fulfill({ status: 200, contentType: 'text/x-repo-replay', body: encodeBundle('2026-11-25T10:00:00.000Z', encodePieces(pieces.map(signed))) }),
   );

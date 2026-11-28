@@ -75,3 +75,18 @@ test('the history table fits the phone screen', async ({ page }) => {
   });
   expect(tableOverflow).toBeLessThanOrEqual(0);
 });
+
+test('a sampled history shows commit counts but no line counts', async ({ page }) => {
+  await serveSaved(page, 'sveltejs', 'svelte', { sampled: true });
+  await page.goto('/sveltejs/svelte');
+  const table = page.getByRole('table', { name: 'Year by year' });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveText(['Year', 'Commits', 'Files', 'New people']);
+  await expect(page.getByText('lines of code aren’t counted')).toBeVisible();
+});
+
+test('a fully read history shows line counts', async ({ page }) => {
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  await expect(page.getByRole('table').getByRole('columnheader')).toHaveText(['Year', 'Commits', 'Added', 'Removed', 'Files', 'New people']);
+});

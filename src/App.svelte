@@ -167,7 +167,7 @@
       </dl>
 
       {#if r.sampled}
-        <p class="note">This history is long, so the yearly numbers are estimated from a sample of it.</p>
+        <p class="note">This history is too long to read commit by commit, so lines of code aren’t counted and the people are the ones seen in a sample.</p>
       {/if}
       {#if view.loaded.replay.snapshots.at(-1)?.truncated}
         <p class="note">GitHub listed only part of the files, so file counts are lower than the real ones.</p>
@@ -175,13 +175,15 @@
 
       <div class="table">
         <table>
-          <caption>{summary.byMonth ? 'Month by month' : 'Year by year'}<span>, lines of code added and removed</span></caption>
+          <caption>{summary.byMonth ? 'Month by month' : 'Year by year'}{#if !r.sampled}<span>, lines of code added and removed</span>{/if}</caption>
           <thead>
             <tr>
               <th scope="col">{summary.byMonth ? 'Month' : 'Year'}</th>
               <th scope="col">Commits</th>
-              <th scope="col">Added</th>
-              <th scope="col">Removed</th>
+              {#if !r.sampled}
+                <th scope="col">Added</th>
+                <th scope="col">Removed</th>
+              {/if}
               <th scope="col">Files</th>
               <th scope="col">New people</th>
             </tr>
@@ -191,8 +193,10 @@
               <tr>
                 <th scope="row">{p.label}</th>
                 <td>{formatCount(p.commits)}</td>
-                <td>{formatShort(p.added)}</td>
-                <td>{formatShort(p.deleted)}</td>
+                {#if !r.sampled}
+                  <td>{formatShort(p.added)}</td>
+                  <td>{formatShort(p.deleted)}</td>
+                {/if}
                 <td>{p.files === null ? '' : formatCount(p.files)}</td>
                 <td>{formatCount(p.newPeople)}</td>
               </tr>
