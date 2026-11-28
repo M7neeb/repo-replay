@@ -47,7 +47,7 @@ export function unbuiltMeta(owner: string, name: string, origin: string): ShareM
     title: `${owner}/${name} · repo-replay`,
     ogTitle: `How ${owner}/${name} grew`,
     description: `A short replay of how ${owner}/${name} grew, from the first commit to today, with the big moments marked.`,
-    image: `${origin}/og.png`,
+    image: `${origin}/preview.png`,
     imageAlt: 'repo-replay: see how any GitHub project grew',
   };
 }

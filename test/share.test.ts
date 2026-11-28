@@ -49,7 +49,7 @@ it('gives a replay link the repo’s own title, description and picture', async 
 it('shows the site’s picture for a repo nobody has replayed yet', async () => {
   const html = await (await apiFor(env)('/someone/unknown')).text();
   expect(meta(html, 'og:title')).toBe('How someone/unknown grew');
-  expect(meta(html, 'og:image')).toBe('https://repo-replay.test/og.png');
+  expect(meta(html, 'og:image')).toBe('https://repo-replay.test/preview.png');
   expect(html).toContain('<title>someone/unknown · repo-replay</title>');
 });
 
@@ -83,7 +83,7 @@ it('draws the share picture for a saved replay, and keeps it for a week when the
 it('sends the site picture for repos without a replay, and refuses odd names', async () => {
   const res = await apiFor(env)('/api/og/someone/unknown.png');
   expect(res.status).toBe(302);
-  expect(res.headers.get('location')).toBe('https://repo-replay.test/og.png');
+  expect(res.headers.get('location')).toBe('https://repo-replay.test/preview.png');
   expect((await apiFor(env)('/api/og/someone/unknown.svg')).status).toBe(404);
   expect((await apiFor(env)('/api/og/-bad/x.png')).status).toBe(404);
 });

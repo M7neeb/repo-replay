@@ -17,7 +17,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ params, request, env, w
   if (!file.toLowerCase().endsWith('.png') || !isOwner(owner) || !isRepoName(name)) {
     return new Response('Not found', { status: 404 });
   }
-  const site = () => Response.redirect(new URL('/og.png', request.url).toString(), 302);
+  const site = () => Response.redirect(new URL('/preview.png', request.url).toString(), 302);
 
   const cache = typeof caches === 'undefined' ? null : caches.default;
   const hit = await cache?.match(request);

@@ -1,4 +1,4 @@
-// Makes public/og.png, the picture shown when the home page (or a repo nobody has replayed yet) is
+// Makes public/preview.png, the picture shown when the home page (or a repo nobody has replayed yet) is
 // shared. It uses the live README card of sveltejs/svelte as the example, or a card saved to a file.
 // Run: node scripts/og-site.mjs [card.svg]
 import { chromium } from '@playwright/test';
@@ -32,6 +32,6 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
 await page.setContent(html);
 await page.evaluate(() => document.fonts.ready);
-await page.screenshot({ path: new URL('../public/og.png', import.meta.url).pathname });
+await page.screenshot({ path: new URL('../public/preview.png', import.meta.url).pathname });
 await browser.close();
-console.log('public/og.png written');
+console.log('public/preview.png written');
