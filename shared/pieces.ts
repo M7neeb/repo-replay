@@ -67,6 +67,11 @@ export interface TreeHeader {
   /** A big file list is read in parts; files and bytes then count only this part. */
   part: number;
   parts: number;
+  /**
+   * Files per top-level folder in this part, ("(files)" for files at the top level). Lets the README card
+   * be drawn from headers alone, without reading every file list.
+   */
+  folders?: [string, number][];
 }
 
 export interface TreeData {

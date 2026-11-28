@@ -116,7 +116,7 @@ describe('building a replay', () => {
     const again = await loadReplay({ owner: 'wide', name: 'mono' }, { api });
     expect(again.cached).toBe(true);
     expect(again.replay.snapshots).toEqual(r.snapshots);
-    expect(kv.writes()).toBe(1);
+    expect(kv.writes()).toBe(2); // the replay and the pointer to the newest copy
   }, 60_000);
 
   it('never collects more pieces than the server accepts, however many parts a file list needs', () => {
@@ -150,7 +150,7 @@ describe('building a replay', () => {
     expect(second.replay.snapshots).toEqual(first.replay.snapshots);
     const after = gh.calls.slice(before);
     expect(after).toEqual(['graphql:Meta', 'rest:rate_limit']);
-    expect(kv.writes()).toBe(1);
+    expect(kv.writes()).toBe(2); // the replay and the pointer to the newest copy
   });
 
   it('builds again over a copy saved by an older build, and only shows that copy while GitHub is busy', async () => {
@@ -217,7 +217,7 @@ describe('when something is wrong', () => {
     const out = await loadReplay({ owner: 'ana', name: 'notes' }, { api: apiFor(env) });
     expect(out.cached).toBe(true);
     expect(out.stale).toBe(true);
-    expect(kv.store.size).toBe(1);
+    expect(kv.store.size).toBe(2);
   });
 
   it('tells the page when the server has no GitHub token', async () => {

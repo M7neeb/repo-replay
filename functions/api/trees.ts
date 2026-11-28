@@ -2,7 +2,7 @@ import type { Env } from '../../server/env';
 import { fail, json } from '../../server/http';
 import { errorResponseFields, gitHub } from '../../server/github';
 import { readInt, readTarget } from '../../server/params';
-import { countDepths, parseTree, partText, pickDepth, rollup, scanTree } from '../../server/rollup';
+import { countDepths, parseTree, partText, pickDepth, rollup, scanTree, topFolders } from '../../server/rollup';
 import { sign } from '../../server/sign';
 import { isSha } from '../../shared/names';
 import { DEPTH_LIMIT } from '../../shared/depth';
@@ -42,7 +42,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       if (given === undefined) return json({ counts: countDepths(tree) } satisfies TreePartResponse);
       const { entries, files, bytes: size } = rollup(tree, given);
       const header: TreeHeader = {
-        kind: 'tree', key: target.key, sha: shas[0], depth: given, files, bytes: size, truncated: tree.truncated, part, parts,
+        kind: 'tree', key: target.key, sha: shas[0], depth: given, files, bytes: size, truncated: tree.truncated, part, parts, folders: topFolders(entries),
       };
       return json({ piece: await sign(env.GITHUB_TOKEN!, header, { entries }) } satisfies TreePartResponse);
     }
@@ -61,7 +61,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       depth ??= pickDepth(tree);
       const { entries, files, bytes } = rollup(tree, depth);
       const header: TreeHeader = {
-        kind: 'tree', key: target.key, sha: shas[i], depth, files, bytes, truncated: tree.truncated, part: 0, parts: 1,
+        kind: 'tree', key: target.key, sha: shas[i], depth, files, bytes, truncated: tree.truncated, part: 0, parts: 1, folders: topFolders(entries),
       };
       pieces.push(await sign(env.GITHUB_TOKEN!, header, { entries }));
     }

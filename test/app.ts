@@ -4,6 +4,7 @@ import { onRequestPost as store } from '../functions/api/replay/index';
 import { onRequestGet as history } from '../functions/api/history';
 import { onRequestGet as buckets } from '../functions/api/buckets';
 import { onRequestGet as trees } from '../functions/api/trees';
+import { onRequestGet as card } from '../functions/api/card/[owner]/[file]';
 import type { Env } from '../server/env';
 import type { Api } from '../src/lib/build';
 
@@ -17,7 +18,11 @@ export function apiFor(env: Env, log: string[] = []): Api {
     let handler: Handler | undefined;
     let params: Record<string, string> = {};
     const m = /^\/api\/replay\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-    if (m && request.method === 'GET') {
+    const c = /^\/api\/card\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    if (c) {
+      handler = card as Handler;
+      params = { owner: decodeURIComponent(c[1]), file: decodeURIComponent(c[2]) };
+    } else if (m && request.method === 'GET') {
       handler = start as Handler;
       params = { owner: decodeURIComponent(m[1]), name: decodeURIComponent(m[2]) };
     } else if (url.pathname === '/api/replay' && request.method === 'POST') handler = store as Handler;

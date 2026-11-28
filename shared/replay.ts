@@ -68,6 +68,11 @@ export function replayKey(repo: Pick<RepoInfo, 'owner' | 'name' | 'head'>): stri
   return `${replayPrefix(repo.owner, repo.name)}${repo.head}`;
 }
 
+/** Points at the head of the newest saved replay of a repo, so the README card finds it in one read. */
+export function latestKey(owner: string, name: string): string {
+  return `latest:v1:${owner.toLowerCase()}/${name.toLowerCase()}`;
+}
+
 export function replayPrefix(owner: string, name: string): string {
   return `replay:v1:${owner.toLowerCase()}/${name.toLowerCase()}@`;
 }

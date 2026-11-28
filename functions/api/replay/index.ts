@@ -4,7 +4,7 @@ import { verify } from '../../../server/sign';
 import { AssembleError, checkStructure } from '../../../shared/assemble';
 import { BUILD, decodePieces, encodeBundle, type BundleMeta } from '../../../shared/bundle';
 import { decodeHeader, MAX_PIECES, type Header } from '../../../shared/pieces';
-import { replayKey } from '../../../shared/replay';
+import { latestKey, replayKey } from '../../../shared/replay';
 
 const MAX_BODY = 8 * 1024 * 1024;
 const KEEP_SECONDS = 60 * 24 * 3600;
@@ -24,9 +24,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (checks.includes(false)) return fail('rejected', { message: 'bad signature' });
 
   let key: string;
+  let latest: string;
+  let head: string;
   try {
     const headers: Header[] = signed.map((s) => decodeHeader(s.body));
-    key = replayKey(checkStructure(headers).repo);
+    const { repo } = checkStructure(headers);
+    key = replayKey(repo);
+    latest = latestKey(repo.owner, repo.name);
+    head = repo.head;
   } catch (err) {
     if (err instanceof AssembleError) return fail('rejected', { message: err.message });
     return fail('bad_request');
@@ -36,6 +41,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const builtAt = new Date().toISOString();
   try {
     await env.REPLAYS.put(key, encodeBundle(builtAt, text), { expirationTtl: KEEP_SECONDS, metadata: { builtAt, build: BUILD } satisfies BundleMeta });
+    await env.REPLAYS.put(latest, head, { expirationTtl: KEEP_SECONDS, metadata: { builtAt, build: BUILD } satisfies BundleMeta });
     return json({ saved: true });
   } catch {
     // Most likely the free plan's 1,000 writes a day; the page already has the replay.
