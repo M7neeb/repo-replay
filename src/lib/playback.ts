@@ -1,4 +1,4 @@
-import type { ChartModel, ChartRow } from '../../shared/chart';
+import { rowAt, type ChartModel, type ChartRow } from '../../shared/chart';
 import type { Moment } from '../../shared/replay';
 
 /** 30 s for a small project, up to 60 s for a very long history, so people watch to the end. */
@@ -56,4 +56,10 @@ export function captionParts(caption: string): { code: boolean; text: string }[]
 export function readmeSnippet(origin: string, owner: string, name: string): string {
   const card = `${origin}/api/card/${owner}/${name}.svg`;
   return `<a href="${origin}/${owner}/${name}"><picture><source media="(prefers-color-scheme: dark)" srcset="${card}?theme=dark"><img alt="How ${owner}/${name} grew" src="${card}"></picture></a>`;
+}
+
+/** The caption at time t: a recent milestone, else what stands out in the counts. The player and the video share it. */
+export function captionAt(model: ChartModel, t: number): string {
+  const recent = momentAt(model.moments, t, model.t1 - model.t0);
+  return recent?.caption ?? standingCaption(model, rowAt(model, t), momentAt(model.moments, t));
 }

@@ -144,3 +144,50 @@ test('the replay fits the screen with no sideways scrolling', async ({ page }) =
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('save video makes an MP4 of the replay', async ({ page }) => {
+  test.setTimeout(180_000);
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  await page.getByRole('button', { name: 'Save video' }).click();
+  await expect(page.getByText(/Making the video… \d+%/)).toBeVisible();
+  const download = page.getByRole('link', { name: 'Download the video' });
+  const share = page.getByRole('button', { name: 'Save or share the video' });
+  await expect(download.or(share)).toBeVisible({ timeout: 170_000 });
+  await expect(page.getByText(/MP4, [\d.]+ MB, 0:34 long/)).toBeVisible();
+  const head = await page.evaluate(async () => {
+    const a = document.querySelector<HTMLAnchorElement>('.video a[download]');
+    if (!a) return null;
+    const bytes = new Uint8Array(await (await fetch(a.href)).arrayBuffer());
+    return { size: bytes.length, box: String.fromCharCode(...bytes.subarray(4, 8)), name: a.download };
+  });
+  if (head) {
+    expect(head.box).toBe('ftyp');
+    expect(head.size).toBeGreaterThan(20_000);
+    expect(head.name).toBe('sveltejs-svelte-replay.mp4');
+  }
+});
+
+test('making a video can be cancelled', async ({ page }) => {
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  await page.getByRole('button', { name: 'Save video' }).click();
+  await expect(page.getByText(/Making the video… [1-9]\d*%/)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('button', { name: 'Save video' })).toBeVisible();
+  // a cancelled video never turns up later
+  await page.waitForTimeout(3000);
+  await expect(page.getByText(/Making the video|Download the video|Save or share/)).toHaveCount(0);
+});
+
+test('a browser that can’t make videos says which can', async ({ page }) => {
+  await page.addInitScript(() => {
+    // @ts-expect-error pretend this browser has no video encoder
+    delete window.VideoEncoder;
+  });
+  await serveSaved(page);
+  await page.goto('/sveltejs/svelte');
+  await page.getByRole('button', { name: 'Save video' }).click();
+  await expect(page.getByText('This browser can’t make videos. Safari on an iPhone, or Chrome or Edge on a computer, can.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+});

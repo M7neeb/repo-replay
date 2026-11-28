@@ -3,7 +3,7 @@
   import type { Replay } from '../../shared/replay';
   import { chartModel, fmt, liveChartSvg, monthYear, rowAt, slot } from '../../shared/chart';
   import { findMoments } from '../../shared/moments';
-  import { captionParts, clock, compact, durationFor, momentAt, readmeSnippet, standingCaption, timeAt } from './playback';
+  import { captionAt, captionParts, clock, compact, durationFor, readmeSnippet, timeAt } from './playback';
   import { summarize } from './summary';
 
   // `example` is the copy on the home page: no side panel, and it starts when it scrolls into view
@@ -35,8 +35,7 @@
 
   const t = $derived(timeAt(model, progress));
   const row = $derived(rowAt(model, t));
-  const moment = $derived(momentAt(model.moments, t, model.t1 - model.t0));
-  const caption = $derived(moment?.caption ?? standingCaption(model, row, momentAt(model.moments, t)));
+  const caption = $derived(captionAt(model, t));
   const chart = $derived(width > 0 ? liveChartSvg(model, Math.round(width), 'replay') : null);
   const table = $derived(summarize(replay));
   const parts = $derived.by(() => {
@@ -105,6 +104,68 @@
   function chartMove(e: PointerEvent) {
     if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) scrubFromPointer(e);
   }
+
+  type VideoState =
+    | { kind: 'idle' }
+    | { kind: 'making'; share: number }
+    | { kind: 'ready'; file: File; url: string }
+    | { kind: 'failed'; message: string };
+  let video = $state<VideoState>({ kind: 'idle' });
+  let videoStop: AbortController | null = null;
+  const fileName = $derived(`${replay.repo.owner}-${replay.repo.name}-replay.mp4`);
+
+  async function makeTheVideo() {
+    videoStop?.abort();
+    const stop = new AbortController();
+    videoStop = stop;
+    video = { kind: 'making', share: 0 };
+    try {
+      const { makeVideo } = await import('./saveVideo');
+      const dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+      const blob = await makeVideo(model, replay.repo.commits, {
+        theme: dark ? 'dark' : 'light',
+        signal: stop.signal,
+        onProgress: (done, total) => {
+          if (videoStop === stop) video = { kind: 'making', share: done / total };
+        },
+      });
+      if (videoStop !== stop) return;
+      const file = new File([blob], fileName, { type: 'video/mp4' });
+      video = { kind: 'ready', file, url: URL.createObjectURL(file) };
+    } catch (err) {
+      if (videoStop !== stop || (err as Error).name === 'AbortError') return;
+      const unsupported = (err as Error).name === 'VideoUnsupported';
+      video = {
+        kind: 'failed',
+        message: unsupported
+          ? 'This browser can’t make videos. Safari on an iPhone, or Chrome or Edge on a computer, can.'
+          : 'The video couldn’t be made. Try again.',
+      };
+    }
+  }
+
+  function cancelVideo() {
+    videoStop?.abort();
+    videoStop = null;
+    video = { kind: 'idle' };
+  }
+
+  const canShareFile = (file: File) => typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+
+  async function shareVideo(file: File) {
+    try {
+      await navigator.share({ files: [file], title: `How ${replay.repo.owner}/${replay.repo.name} grew` });
+    } catch {
+      // closing the share sheet is not a problem
+    }
+  }
+
+  onDestroy(() => {
+    videoStop?.abort();
+    if (video.kind === 'ready') URL.revokeObjectURL(video.url);
+  });
+
+  const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
   let copied = $state<'' | 'link' | 'readme'>('');
   const snippet = $derived(readmeSnippet(typeof location === 'undefined' ? '' : location.origin, replay.repo.owner, replay.repo.name));
@@ -193,6 +254,30 @@
     </ul>
 
     <div class="actions">
+      <div class="video" aria-live="polite">
+        {#if video.kind === 'idle'}
+          <button class="btn primary" onclick={makeTheVideo}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M2.5 13.5h11"/></svg>
+            Save video
+          </button>
+        {:else if video.kind === 'making'}
+          <div class="making">
+            <span>Making the video… {Math.round(video.share * 100)}%</span>
+            <button class="btn small" onclick={cancelVideo}>Cancel</button>
+          </div>
+          <div class="meter" aria-hidden="true"><i style="width: {video.share * 100}%"></i></div>
+        {:else if video.kind === 'ready'}
+          {#if canShareFile(video.file)}
+            <button class="btn primary" onclick={() => video.kind === 'ready' && shareVideo(video.file)}>Save or share the video</button>
+          {:else}
+            <a class="btn primary" href={video.url} download={fileName}>Download the video</a>
+          {/if}
+          <p class="vnote">MP4, {megabytes(video.file.size)}, {clock(duration + 4)} long. <button class="link" onclick={cancelVideo}>Start over</button></p>
+        {:else}
+          <p class="vfail">{video.message}</p>
+          <button class="btn" onclick={makeTheVideo}>Try again</button>
+        {/if}
+      </div>
       <button class="btn" onclick={() => copy('link')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M5.5 7.5L4 9a2.4 2.4 0 003.4 3.4L9 11M10.5 8.5L12 7a2.4 2.4 0 00-3.4-3.4L7 5"/></svg>
         {copied === 'link' ? 'Link copied' : 'Copy link'}
@@ -293,6 +378,14 @@
   .btn { height: 44px; border-radius: 6px; border: 1px solid var(--line); background: var(--sunk); color: var(--ink); font-weight: 600; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
   .btn:hover { border-color: var(--muted); }
   .btn.small { height: 34px; padding: 0 14px; font-size: 14px; }
+  .btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); text-decoration: none; }
+  .video { display: grid; gap: 8px; }
+  .making { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; font-variant-numeric: tabular-nums; }
+  .meter { height: 6px; border-radius: 3px; background: var(--hair); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--ink); border-radius: 3px; }
+  .vnote, .vfail { margin: 0; font-size: 14px; color: var(--muted); }
+  .vfail { color: var(--error); }
+  .link { border: 0; background: none; padding: 0; color: var(--ink); text-decoration: underline; font: inherit; cursor: pointer; }
   .readme { border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
   .readme-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .readme p { color: var(--muted); font-size: 14px; margin: 6px 0 10px; }
