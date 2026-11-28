@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { parseRepoUrl, type RepoRef } from './lib/repoUrl';
   import { loadReplay, LoadError, type Loaded, type Progress } from './lib/build';
-  import { summarize, formatCount, formatDate, formatShort, plural } from './lib/summary';
+  import { formatCount, plural } from './lib/summary';
+  import Player from './lib/Player.svelte';
 
   type View =
     | { kind: 'home' }
@@ -10,12 +11,13 @@
     | { kind: 'done'; ref: RepoRef; loaded: Loaded; seconds: number }
     | { kind: 'failed'; ref: RepoRef; error: LoadError };
 
+  const EXAMPLES = ['sveltejs/svelte', 'torvalds/linux', 'M7neeb/repo-replay'];
+
   let link = $state('');
   let linkError = $state('');
   let view = $state<View>({ kind: 'home' });
   let controller: AbortController | null = null;
-
-  const summary = $derived(view.kind === 'done' ? summarize(view.loaded.replay) : null);
+  let input: HTMLInputElement | undefined = $state();
 
   function refFromPath(path: string): RepoRef | null {
     const parts = path.split('/').filter(Boolean);
@@ -28,6 +30,7 @@
     controller = mine;
     const started = performance.now();
     view = { kind: 'loading', ref, progress: { stage: 'start' } };
+    document.title = `${ref.owner}/${ref.name} · repo-replay`;
     try {
       const loaded = await loadReplay(ref, {
         signal: mine.signal,
@@ -38,6 +41,7 @@
       if (controller !== mine) return;
       const actual = { owner: loaded.replay.repo.owner, name: loaded.replay.repo.name };
       view = { kind: 'done', ref: actual, loaded, seconds: (performance.now() - started) / 1000 };
+      document.title = `${actual.owner}/${actual.name} · repo-replay`;
       if (location.pathname !== `/${actual.owner}/${actual.name}`) {
         history.replaceState(null, '', `/${actual.owner}/${actual.name}`);
       }
@@ -51,12 +55,19 @@
     const ref = refFromPath(location.pathname);
     if (ref) {
       link = `github.com/${ref.owner}/${ref.name}`;
+      linkError = '';
       open(ref);
     } else {
       controller?.abort();
       controller = null;
       view = { kind: 'home' };
+      document.title = 'repo-replay';
     }
+  }
+
+  function go(path: string) {
+    if (location.pathname !== path) history.pushState(null, '', path);
+    route();
   }
 
   function submit(event: SubmitEvent) {
@@ -67,9 +78,13 @@
       return;
     }
     linkError = '';
-    const path = `/${ref.owner}/${ref.name}`;
-    if (location.pathname !== path) history.pushState(null, '', path);
-    open(ref);
+    go(`/${ref.owner}/${ref.name}`);
+  }
+
+  function goHome(event: MouseEvent) {
+    event.preventDefault();
+    go('/');
+    queueMicrotask(() => input?.focus());
   }
 
   onMount(() => {
@@ -84,7 +99,7 @@
         return `Looking up ${ref.owner}/${ref.name}`;
       case 'history':
         return p.unit === 'parts'
-          ? `Reading the history: ${p.done} of ${p.total} parts`
+          ? `Reading the history: ${p.done} of ${p.total} slices`
           : `Reading the history: ${formatCount(p.done)} of ${plural(p.total, 'commit', 'commits')}`;
       case 'files':
         return `Looking at the files: ${p.done} of ${p.total} points in time`;
@@ -93,8 +108,13 @@
     }
   }
 
-  function seconds(s: number): string {
-    return s < 0.1 ? 'under 0.1 s' : `${s.toFixed(1)} s`;
+  function progressShare(p: Progress): number {
+    switch (p.stage) {
+      case 'start': return 0.03;
+      case 'history': return 0.05 + 0.55 * (p.total ? p.done / p.total : 0);
+      case 'files': return 0.6 + 0.35 * (p.total ? p.done / p.total : 0);
+      case 'save': return 0.97;
+    }
   }
 
   function errorText(e: LoadError): string {
@@ -118,160 +138,121 @@
         return 'Something went wrong while building this replay. Try again.';
     }
   }
+
+  function savedNote(v: Extract<View, { kind: 'done' }>): string {
+    if (v.loaded.stale) return 'GitHub is busy, so this is the last saved copy and may miss the newest commits.';
+    if (v.loaded.cached) return '';
+    return `Built in ${v.seconds.toFixed(1)} s${v.loaded.saved ? ' and saved, so it opens straight away next time' : ''}.`;
+  }
 </script>
 
+<header class="top">
+  <a class="mark" href="/" onclick={goHome}>
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M2 19h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 16l4-5 4 2 4-6 4-4" fill="none" stroke="var(--s1)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    repo-replay
+  </a>
+  {#if view.kind !== 'home'}
+    <a class="another" href="/" onclick={goHome}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+      Another repo
+    </a>
+  {/if}
+</header>
+
 <main>
-  <h1><a href="/" onclick={(e) => { e.preventDefault(); history.pushState(null, '', '/'); route(); }}>repo-replay</a></h1>
-  <p class="lede">Paste a GitHub link and watch how the project grew.</p>
-
-  <form onsubmit={submit} novalidate>
-    <label for="link">GitHub link</label>
-    <div class="row">
-      <input
-        id="link"
-        name="link"
-        type="text"
-        inputmode="url"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        placeholder="github.com/owner/repo"
-        bind:value={link}
-        aria-invalid={linkError ? 'true' : undefined}
-        aria-describedby={linkError ? 'link-error' : undefined}
-      />
-      <button type="submit">Replay</button>
-    </div>
-    {#if linkError}
-      <p id="link-error" class="error" role="alert">{linkError}</p>
-    {/if}
-  </form>
-
-  {#if view.kind === 'loading'}
-    <p class="status" role="status" aria-live="polite">{progressText(view.progress, view.ref)}</p>
-  {:else if view.kind === 'failed'}
-    <p class="error" role="alert">{errorText(view.error)}</p>
-  {:else if view.kind === 'done' && summary}
-    {@const r = view.loaded.replay.repo}
-    <section aria-labelledby="repo-title">
-      <h2 id="repo-title">{r.owner}/{r.name}</h2>
-      {#if r.description}<p class="desc">{r.description}</p>{/if}
-
-      <dl>
-        <div><dt>First commit</dt><dd>{formatDate(summary.firstAt)}</dd></div>
-        <div><dt>Latest commit</dt><dd>{formatDate(summary.headAt)}</dd></div>
-        <div><dt>Commits</dt><dd>{formatCount(summary.commits)}</dd></div>
-        <div><dt>{r.sampled ? 'People seen' : 'People'}</dt><dd>{formatCount(summary.people)}</dd></div>
-        <div><dt>Files now</dt><dd>{formatCount(summary.files)}</dd></div>
-        <div><dt>Stars</dt><dd>{formatCount(r.stars)}</dd></div>
-      </dl>
-
-      {#if r.sampled}
-        <p class="note">This history is too long to read commit by commit, so lines of code aren’t counted and the people are the ones seen in a sample.</p>
-      {/if}
-      {#if view.loaded.replay.snapshots.at(-1)?.truncated}
-        <p class="note">GitHub listed only part of the files, so file counts are lower than the real ones.</p>
+  {#if view.kind === 'home' || view.kind === 'failed'}
+    <section class="home">
+      {#if view.kind === 'home'}
+        <h1>See how any GitHub project grew.</h1>
+        <p class="lede">Paste a link to a public repo. You get a short replay of its files and folders from the first commit to today, with the big moments marked.</p>
       {/if}
 
-      <div class="table">
-        <table>
-          <caption>{summary.byMonth ? 'Month by month' : 'Year by year'}{#if !r.sampled}<span>, lines of code added and removed</span>{/if}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{summary.byMonth ? 'Month' : 'Year'}</th>
-              <th scope="col">Commits</th>
-              {#if !r.sampled}
-                <th scope="col">Added</th>
-                <th scope="col">Removed</th>
-              {/if}
-              <th scope="col">Files</th>
-              <th scope="col">New people</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each summary.periods as p (p.label)}
-              <tr>
-                <th scope="row">{p.label}</th>
-                <td>{formatCount(p.commits)}</td>
-                {#if !r.sampled}
-                  <td>{formatShort(p.added)}</td>
-                  <td>{formatShort(p.deleted)}</td>
-                {/if}
-                <td>{p.files === null ? '' : formatCount(p.files)}</td>
-                <td>{formatCount(p.newPeople)}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-
-      <p class="note" data-testid="source">
-        {#if view.loaded.stale}
-          GitHub is busy, so this is the last saved copy. It may be missing the newest commits.
-        {:else if view.loaded.cached}
-          Opened the saved replay in {seconds(view.seconds)}.
-        {:else}
-          Built in {seconds(view.seconds)}{view.loaded.saved ? ' and saved, so it opens straight away next time' : ''}.
+      <form onsubmit={submit} novalidate>
+        <label for="link">GitHub link</label>
+        <div class="row">
+          <input
+            id="link"
+            name="link"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="github.com/owner/repo"
+            bind:value={link}
+            bind:this={input}
+            aria-invalid={linkError ? 'true' : undefined}
+            aria-describedby={linkError ? 'link-error' : undefined}
+          />
+          <button type="submit">Replay</button>
+        </div>
+        {#if linkError}
+          <p id="link-error" class="error" role="alert">{linkError}</p>
         {/if}
-      </p>
+      </form>
+
+      {#if view.kind === 'failed'}
+        <div class="problem" role="alert">
+          <strong>{view.ref.owner}/{view.ref.name}</strong>
+          <p>{errorText(view.error)}</p>
+        </div>
+      {:else}
+        <p class="try">
+          Try
+          {#each EXAMPLES as ex, i (ex)}
+            <a href="/{ex}" onclick={(e) => { e.preventDefault(); link = `github.com/${ex}`; go(`/${ex}`); }}>{ex}</a>{i < EXAMPLES.length - 2 ? ', ' : i === EXAMPLES.length - 2 ? ' or ' : '.'}
+          {/each}
+        </p>
+      {/if}
     </section>
+  {:else if view.kind === 'loading'}
+    <section class="loading" aria-busy="true">
+      <h1 class="repo">{view.ref.owner}/<b>{view.ref.name}</b></h1>
+      <div class="meter" aria-hidden="true"><i style="width: {progressShare(view.progress) * 100}%"></i></div>
+      <p class="status" role="status" aria-live="polite">{progressText(view.progress, view.ref)}</p>
+      <p class="hint">The first replay of a big project takes up to a minute. After that it opens straight away.</p>
+    </section>
+  {:else if view.kind === 'done'}
+    {#key `${view.ref.owner}/${view.ref.name}@${view.loaded.replay.repo.head}`}
+      <Player replay={view.loaded.replay} note={savedNote(view)} />
+    {/key}
   {/if}
 </main>
 
 <style>
-  main {
-    max-width: 44rem;
-    margin: 0 auto;
-    padding: max(48px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-      48px max(16px, env(safe-area-inset-left));
-  }
-  h1 { font-size: 2rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
-  h1 a { color: inherit; text-decoration: none; }
-  .lede { color: var(--muted); margin: 0 0 2rem; }
-  label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
-  .row { display: flex; gap: 0.5rem; }
-  input {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 16px;
-    padding: 0.7rem 0.8rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-  }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+  .mark { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); text-decoration: none; }
+  .another { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--sunk); color: var(--muted); font-size: 14px; text-decoration: none; }
+  .another:hover { color: var(--ink); border-color: var(--muted); }
+  main { max-width: 1240px; margin: 0 auto; padding: 22px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left)); }
+
+  .home { max-width: 40rem; padding-top: 6vh; }
+  h1 { font-size: 36px; line-height: 1.1; letter-spacing: -0.025em; margin: 0 0 12px; font-weight: 700; text-wrap: balance; }
+  .lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 34em; }
+  label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; font-size: 16px; height: 46px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--sunk); }
+  input:focus { border-color: var(--s1); background: var(--surface); }
   input[aria-invalid='true'] { border-color: var(--error); }
-  button {
-    font: inherit;
-    font-weight: 600;
-    padding: 0.7rem 1.1rem;
-    border: 0;
-    border-radius: 6px;
-    background: var(--accent);
-    color: var(--bg);
-    cursor: pointer;
+  button[type='submit'] { height: 46px; padding: 0 18px; border: 0; border-radius: 6px; background: var(--ink); color: var(--surface); font-weight: 600; cursor: pointer; }
+  .error { color: var(--error); margin: 8px 0 0; font-size: 14px; }
+  .try { color: var(--muted); margin: 18px 0 0; font-size: 15px; }
+  .try a { color: var(--ink); }
+  .problem { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--error); border-radius: 6px; }
+  .problem strong { display: block; margin-bottom: 2px; overflow-wrap: anywhere; }
+  .problem p { margin: 0; }
+
+  .loading { max-width: 40rem; padding-top: 4vh; }
+  .repo { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .repo b { font-weight: 700; }
+  .meter { height: 6px; border-radius: 3px; background: var(--hair); overflow: hidden; margin-top: 22px; }
+  .meter i { display: block; height: 100%; background: var(--s1); border-radius: 3px; transition: width 0.3s ease-out; }
+  .status { margin: 12px 0 0; font-variant-numeric: tabular-nums; }
+  .hint { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+
+  @media (min-width: 960px) {
+    .top { padding: 10px 32px; }
+    main { padding: 32px 40px 56px; }
+    h1 { font-size: 48px; }
   }
-  input:focus-visible, button:focus-visible, h1 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .error { color: var(--error); margin: 0.6rem 0 0; }
-  .status { margin-top: 1.5rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-  section { margin-top: 2.5rem; }
-  h2 { font-size: 1.35rem; margin: 0 0 0.35rem; overflow-wrap: anywhere; }
-  .desc { margin: 0 0 1.25rem; color: var(--muted); }
-  dl {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-    gap: 0.75rem 1.5rem;
-    margin: 0 0 1.25rem;
-  }
-  dt { font-size: 0.8rem; color: var(--muted); }
-  dd { margin: 0.1rem 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .note { font-size: 0.875rem; color: var(--muted); margin: 0 0 1rem; }
-  .table { overflow-x: auto; margin: 0 0 1rem; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-  caption { text-align: left; font-weight: 600; padding-bottom: 0.5rem; }
-  caption span { font-weight: 400; color: var(--muted); }
-  th, td { padding: 0.4rem 0 0.4rem 0.75rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
-  th:first-child { text-align: left; padding-left: 0; }
-  thead th { font-weight: 500; color: var(--muted); white-space: normal; vertical-align: bottom; }
 </style>

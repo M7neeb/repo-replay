@@ -2,8 +2,8 @@
 
 Paste a GitHub link and watch how the project grew, from the first file to today.
 
-Work in progress. Right now it reads a public repo's history and shows it year by year; the
-animated replay comes next.
+Work in progress. It reads a public repo's history and plays it back as a chart of its files and
+folders over time, with the big moments marked. Video export comes next.
 
 ## How it reads a repo
 
@@ -16,6 +16,8 @@ call, so the page builds a replay in small steps:
   instead (`GET /api/buckets`): 60 slices of time, with the commit count for each and a sample.
 - `GET /api/trees` lists the files at up to 60 points in time. Big file lists are read in parts.
 - `POST /api/replay` saves the finished replay to KV.
+- `GET /api/card/:owner/:name.svg` (`?theme=dark`) draws the newest saved replay as an animated SVG for a
+  README. It only reads the small signed summaries, so it stays inside the CPU limit for big projects.
 
 The server signs every step's answer and checks the signatures before saving, so a saved
 replay can only contain data that came from GitHub.
